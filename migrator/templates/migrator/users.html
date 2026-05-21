@@ -1,0 +1,320 @@
+{% extends "migrator/base.html" %}
+{% block title %}Users · Mailbox Transfer{% endblock %}
+{% block content %}
+
+<style>
+  main { max-width: 1600px !important; }
+
+  .users-stats {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;
+    margin-bottom: 18px;
+  }
+  .users-stats .stat {
+    background: var(--card); border: 1px solid var(--card-border);
+    border-radius: var(--r); padding: 14px 18px;
+    box-shadow: var(--card-shadow);
+  }
+  .users-stats .stat .label {
+    font-size: 11px; font-weight: 600; color: var(--muted);
+    text-transform: uppercase; letter-spacing: .05em;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .users-stats .stat .value {
+    font-size: 26px; font-weight: 700; color: var(--text);
+    margin-top: 4px; letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums;
+  }
+  .users-stats .stat .value.warn { color: var(--orange); }
+  .users-stats .stat .value.green { color: var(--green); }
+  @media (max-width: 720px) { .users-stats { grid-template-columns: 1fr; } }
+
+  .filter-bar {
+    display: flex; align-items: center; gap: 8px;
+    background: var(--card); border: 1px solid var(--card-border);
+    border-radius: var(--r); padding: 8px;
+    margin-bottom: 14px; box-shadow: var(--card-shadow);
+    width: fit-content;
+  }
+  .filter-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 6px 12px; border-radius: 8px;
+    font-size: 13px; font-weight: 600; color: var(--text-secondary);
+    text-decoration: none;
+    transition: background .12s, color .12s;
+  }
+  .filter-chip:hover { background: var(--subtle); color: var(--text); }
+  .filter-chip.is-active {
+    background: var(--primary); color: #fff;
+  }
+  .filter-chip .count {
+    background: rgba(15,23,42,.06); color: inherit;
+    padding: 1px 7px; border-radius: 999px;
+    font-size: 11.5px; font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+  .filter-chip.is-active .count { background: rgba(255,255,255,.22); }
+
+  /* Table polish */
+  .users-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  .users-table thead th {
+    font-size: 11px; color: var(--muted); text-transform: uppercase;
+    letter-spacing: .05em; font-weight: 600; background: #fafbfc;
+    padding: 12px 18px; border-bottom: 1px solid var(--card-border);
+    text-align: left; white-space: nowrap;
+  }
+  .users-table tbody td {
+    padding: 14px 18px; border-bottom: 1px solid var(--card-border);
+    vertical-align: middle;
+  }
+  .users-table tbody tr:last-child td { border-bottom: 0; }
+  .users-table tbody tr { transition: background .12s; }
+  .users-table tbody tr:hover { background: var(--hover); }
+  .users-table tbody tr.pending { background: #fffbeb; }
+  .users-table tbody tr.pending:hover { background: #fef3c7; }
+
+  .user-cell { display: flex; align-items: center; gap: 12px; min-width: 0; }
+  .avatar {
+    width: 36px; height: 36px; border-radius: 50%;
+    background: linear-gradient(135deg, #6366f1, #a855f7);
+    color: #fff; font-size: 13px; font-weight: 700;
+    display: inline-flex; align-items: center; justify-content: center;
+    flex-shrink: 0; text-transform: uppercase;
+    box-shadow: 0 1px 3px rgba(99,102,241,.25);
+  }
+  .user-cell .name { font-weight: 600; color: var(--text); line-height: 1.3; }
+  .user-cell .email {
+    color: var(--muted); font-size: 12.5px; line-height: 1.3;
+    word-break: break-all; max-width: 320px;
+  }
+
+  .actions-cell {
+    display: flex; align-items: center; justify-content: flex-end; gap: 6px;
+  }
+  .actions-cell .btn { padding: 6px 12px; font-size: 12.5px; }
+  .actions-cell .icon-btn {
+    background: transparent; border: 1px solid var(--card-border);
+    color: var(--muted); padding: 7px 8px; border-radius: 8px;
+    cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
+    transition: all .12s;
+  }
+  .actions-cell .icon-btn:hover { color: var(--red); border-color: var(--red-border); background: var(--red-bg); }
+  .actions-cell .icon-btn svg { width: 14px; height: 14px; }
+
+  .num-cell { font-variant-numeric: tabular-nums; font-weight: 600; }
+
+  .empty-row td {
+    padding: 56px 24px; text-align: center; color: var(--muted);
+  }
+  .empty-row .icon-lg {
+    color: #cbd5e1; margin: 0 auto 10px; display: block; width: 32px; height: 32px;
+  }
+  .empty-row b { color: var(--text); display: block; margin-bottom: 4px; }
+</style>
+
+<div class="page-head">
+  <div>
+    <h1>Users</h1>
+    <p class="page-sub">Everyone with access to this server. Activate new signups once you trust them.</p>
+  </div>
+</div>
+
+<div class="users-stats">
+  <div class="stat">
+    <div class="label">
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      Total users
+    </div>
+    <div class="value">{{ stats.total }}</div>
+  </div>
+  <div class="stat">
+    <div class="label">
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" style="color: var(--green);"><polyline points="20 6 9 17 4 12"/></svg>
+      Active
+    </div>
+    <div class="value green">{{ stats.active }}</div>
+  </div>
+  <div class="stat">
+    <div class="label">
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" style="color: var(--orange);"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+      Awaiting approval
+    </div>
+    <div class="value {% if stats.pending %}warn{% endif %}">{{ stats.pending }}</div>
+  </div>
+</div>
+
+<div class="filter-bar">
+  <a class="filter-chip {% if status_filter == 'all' %}is-active{% endif %}" href="?status=all">
+    All <span class="count">{{ stats.total }}</span>
+  </a>
+  <a class="filter-chip {% if status_filter == 'active' %}is-active{% endif %}" href="?status=active">
+    Active <span class="count">{{ stats.active }}</span>
+  </a>
+  <a class="filter-chip {% if status_filter == 'pending' %}is-active{% endif %}" href="?status=pending">
+    Awaiting approval <span class="count">{{ stats.pending }}</span>
+  </a>
+</div>
+
+<div class="card" style="padding: 0; overflow: hidden;">
+  <table class="users-table">
+    <thead>
+      <tr>
+        <th style="width: 60px;">#</th>
+        <th>User</th>
+        <th style="width: 110px;">Role</th>
+        <th style="width: 150px;">Sign-in</th>
+        <th style="width: 180px;">Status</th>
+        <th style="text-align: right; width: 110px;">Migrations</th>
+        <th style="text-align: right; width: 110px;">Storage</th>
+        <th style="width: 150px;">Last sign-in</th>
+        <th style="width: 220px; text-align: right;">Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for u in users %}
+        <tr class="{% if not u.is_active %}pending{% endif %}">
+          <td class="muted" style="font-variant-numeric: tabular-nums;">{{ u.id }}</td>
+          <td>
+            <div class="user-cell">
+              <span class="avatar">{{ u.first_name|default:u.get_username|slice:":1" }}</span>
+              <div style="min-width:0;">
+                <div class="name">
+                  {% if u.first_name or u.last_name %}{{ u.first_name }} {{ u.last_name }}
+                  {% else %}{{ u.get_username }}{% endif %}
+                </div>
+                <div class="email">{{ u.email|default:u.get_username }}</div>
+              </div>
+            </div>
+          </td>
+          <td>
+            {% if u.is_staff %}
+              <span class="pill sky">Staff</span>
+            {% else %}
+              <span class="pill grey">User</span>
+            {% endif %}
+          </td>
+          <td>
+            <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+              {% if 'google' in u.signin_methods %}
+                <span class="pill grey" title="Signed up with Google OAuth" style="padding-left:6px;">
+                  <svg viewBox="0 0 24 24" width="11" height="11" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                    <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+                    <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.99.66-2.26 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+                    <path d="M5.84 14.1c-.22-.66-.35-1.36-.35-2.1s.13-1.44.35-2.1V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.83z" fill="#FBBC05"/>
+                    <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.83c.87-2.6 3.3-4.52 6.16-4.52z" fill="#EA4335"/>
+                  </svg>
+                  Google
+                </span>
+              {% endif %}
+              {% if 'email' in u.signin_methods %}
+                <span class="pill sky" title="Has an email + password login">
+                  <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+                  Email
+                </span>
+              {% endif %}
+              {% if not u.signin_methods %}
+                <span class="muted" style="font-size: 12px; font-style: italic;">—</span>
+              {% endif %}
+            </div>
+          </td>
+          <td>
+            {% if u.is_active %}
+              <span class="pill green">
+                <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                Active
+              </span>
+            {% else %}
+              <span class="pill orange">
+                <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                Awaiting approval
+              </span>
+            {% endif %}
+          </td>
+          <td style="text-align: right;" class="num-cell">{{ u.migration_count }}</td>
+          <td style="text-align: right; font-variant-numeric: tabular-nums; font-size: 13px; {% if u.storage_bytes == 0 %}color: var(--muted);{% else %}font-weight: 600; color: var(--text);{% endif %}">{{ u.storage_display }}</td>
+          <td class="muted" style="font-size: 13px;">
+            {% if u.last_login %}{{ u.last_login|date:"Y-m-d H:i" }}{% else %}<span style="font-style: italic;">never</span>{% endif %}
+          </td>
+          <td>
+            <div class="actions-cell">
+              {% if u.id != request.user.id and not u.is_superuser %}
+                {% if u.is_active %}
+                  <form method="post" action="{% url 'migrator:toggle_user_active' u.id %}" class="js-toggle-active" style="margin:0;"
+                        data-username="{{ u.get_username }}" data-action="deactivate">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-grey">Deactivate</button>
+                  </form>
+                {% else %}
+                  <form method="post" action="{% url 'migrator:toggle_user_active' u.id %}" style="margin:0;">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-primary">Activate</button>
+                  </form>
+                {% endif %}
+                <form method="post" action="{% url 'migrator:delete_user' u.id %}" class="js-delete-user" style="margin:0;"
+                      data-username="{{ u.get_username }}" data-migrations="{{ u.migration_count }}">
+                  {% csrf_token %}
+                  <button type="submit" class="icon-btn" title="Delete user">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/></svg>
+                  </button>
+                </form>
+              {% endif %}
+            </div>
+          </td>
+        </tr>
+      {% empty %}
+        <tr class="empty-row">
+          <td colspan="9">
+            <svg class="icon-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+            <b>No users to show</b>
+            {% if status_filter == 'pending' %}No accounts are waiting for approval. New signups will appear here.
+            {% elif status_filter == 'active' %}No active users yet.
+            {% else %}No users have signed up yet.{% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+  document.querySelectorAll('.js-toggle-active[data-action="deactivate"]').forEach(form => {
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const u = form.dataset.username || 'this user';
+      const result = await mtSwal.confirm({
+        title: 'Deactivate user?',
+        html: `<div><b style="color:#0f172a;">${u}</b> will be blocked from signing in until you reactivate them.</div>`,
+        confirmText: 'Deactivate',
+        danger: true,
+      });
+      if (result.isConfirmed) form.submit();
+    });
+  });
+
+  document.querySelectorAll('.js-delete-user').forEach(form => {
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const u = form.dataset.username || 'this user';
+      const n = parseInt(form.dataset.migrations || '0', 10);
+      let html = `<div>Delete <b style="color:#0f172a;">${u}</b>?</div>`;
+      if (n > 0) {
+        html += `<div style="margin-top:10px; padding: 10px 12px; background:#fef2f2; border:1px solid #fecaca; border-radius:8px; color:#991b1b;">
+                   This will also delete <b>${n}</b> migration${n === 1 ? '' : 's'} they own — including all stored backup data.
+                   There is no undo.
+                 </div>`;
+      } else {
+        html += `<div style="margin-top:10px; color:#475569; font-size:13px;">They have no migrations. This only removes the user account.</div>`;
+      }
+      const result = await mtSwal.confirm({
+        title: 'Delete user?',
+        html,
+        confirmText: n > 0 ? `Delete user + ${n} migration${n === 1 ? '' : 's'}` : 'Delete user',
+        danger: true,
+      });
+      if (result.isConfirmed) form.submit();
+    });
+  });
+</script>
+{% endblock %}

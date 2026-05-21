@@ -1,0 +1,122 @@
+{% extends "migrator/base.html" %}
+{% block content %}
+
+<div class="page-head">
+  <div>
+    <h1>Migrations</h1>
+    <p class="page-sub">Each entry is one source-to-destination mailbox migration.</p>
+  </div>
+  <div class="actions">
+    <a class="btn btn-primary" href="{% url 'migrator:config_new' %}">
+      <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      New migration
+    </a>
+  </div>
+</div>
+
+<div class="card" style="padding: 0; overflow: hidden;">
+  {% if migrations %}
+    <table>
+      <thead>
+        <tr>
+          <th style="width:60px;">#</th>
+          <th>Label</th>
+          {% if is_admin_view %}<th style="width:140px;">Owner</th>{% endif %}
+          <th>Source</th>
+          <th>Destination</th>
+          <th style="width:140px;">Created</th>
+          <th style="width:280px;"></th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for m in migrations %}
+        <tr>
+          <td><span class="muted" style="font-variant-numeric: tabular-nums;">{{ m.id }}</span></td>
+          <td>
+            <div style="display:flex; align-items:center; gap:10px;">
+              <span style="width:28px; height:28px; border-radius:8px; background:linear-gradient(135deg,#6366f1,#a855f7); color:#fff; display:inline-flex; align-items:center; justify-content:center; font-size:12px; font-weight:700;">
+                {{ m.name|default:m.new_username|slice:":1"|upper }}
+              </span>
+              <b style="color: var(--text);">{{ m.name|default:"—" }}</b>
+            </div>
+          </td>
+          {% if is_admin_view %}
+          <td class="muted" style="font-size: 13px;">{{ m.owner.get_username|default:"—" }}</td>
+          {% endif %}
+          <td>
+            <div style="font-weight:500;">{{ m.old_username }}</div>
+            <div class="muted" style="font-size:12.5px;">{{ m.old_host }}</div>
+          </td>
+          <td>
+            <div style="font-weight:500;">{{ m.new_username }}</div>
+            <div class="muted" style="font-size:12.5px;">{{ m.new_host }}</div>
+          </td>
+          <td class="muted" style="font-size: 13px;">{{ m.created_at|date:"Y-m-d H:i" }}</td>
+          <td style="text-align:right; white-space:nowrap;">
+            <a class="btn btn-grey" href="{% url 'migrator:report' m.id %}" title="View migration report">
+              <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+              Report
+            </a>
+            {% if m.owner_id == request.user.id %}
+              <a class="btn btn-grey" style="margin-left:6px;" href="{% url 'migrator:download_backup' m.id %}" title="Download .mbox backup as ZIP">
+                <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                Backup
+              </a>
+              <a class="btn btn-primary" style="margin-left:6px;" href="{% url 'migrator:config_edit' m.id %}">
+                Open
+                <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+              </a>
+              <form method="post" action="{% url 'migrator:delete_migration' m.id %}" class="js-delete-form" style="display:inline; margin-left:6px;"
+                    data-mig-id="{{ m.id }}"
+                    data-mig-label="{{ m.name|default:m.old_username }}">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-grey" title="Delete record" style="color: var(--red); padding: 8px 10px;">
+                  <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/></svg>
+                </button>
+              </form>
+            {% else %}
+              <span class="muted" style="margin-left:10px; font-size: 12px; font-style: italic;" title="Owned by {{ m.owner.get_username|default:'—' }}">view only</span>
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <div class="empty">
+      <svg class="icon-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+      <b>No migrations yet</b>
+      Create your first migration to get started.
+      <div style="margin-top:14px;">
+        <a class="btn btn-primary" href="{% url 'migrator:config_new' %}">+ New migration</a>
+      </div>
+    </div>
+  {% endif %}
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+document.querySelectorAll('.js-delete-form').forEach(form => {
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const id = form.dataset.migId;
+    const label = form.dataset.migLabel || ('#' + id);
+    const result = await mtSwal.confirm({
+      title: 'Delete this migration?',
+      html: `<div><b style="color:#0f172a;">${escapeHtml(label)}</b> &middot; <span style="color:#94a3b8;">migration #${id}</span></div>
+             <div style="margin-top:10px;">This deletes the migration record and its backed-up messages from the database. There is no recovery — download the backup first if you still need it.</div>`,
+      confirmText: 'Delete record',
+      danger: true,
+    });
+    if (result.isConfirmed) {
+      form.submit();
+    }
+  });
+});
+</script>
+{% endblock %}

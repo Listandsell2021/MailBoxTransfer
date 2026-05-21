@@ -1,0 +1,17 @@
+{% load account %}{% user_display user as user_display %}Hi {{ user.first_name|default:user_display }},
+
+You're almost set up on Mailbox Transfer.
+
+Click the link below to verify that this email address belongs to you:
+
+{{ activate_url }}
+
+This link will expire in {{ expiration_days|default:3 }} days.
+
+Once you've confirmed your email, an administrator will activate your account.
+You'll be able to sign in as soon as that's done.
+
+If you didn't sign up for Mailbox Transfer, you can ignore this email — no
+account has been activated for this address.
+
+— Mailbox Transfer

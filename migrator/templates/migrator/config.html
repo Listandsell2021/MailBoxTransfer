@@ -1,0 +1,222 @@
+{% extends "migrator/base.html" %}
+{% block title %}IMAP Configuration · Mailbox Transfer{% endblock %}
+{% block content %}
+
+<div class="page-head">
+  <div>
+    <h1>IMAP Configuration</h1>
+    <p class="page-sub">Enter the credentials for the source mailbox and the destination mailbox.</p>
+  </div>
+</div>
+
+<div class="card">
+  <form method="post" id="cfg-form" novalidate>
+    {% csrf_token %}
+
+    {% if form.non_field_errors %}
+      <div class="alert error">
+        <svg class="icon-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        <div>{{ form.non_field_errors|join:" · " }}</div>
+      </div>
+    {% elif form.errors %}
+      <div class="alert error">
+        <svg class="icon-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        <div>Please correct the highlighted fields.</div>
+      </div>
+    {% endif %}
+
+    <div class="field {% if form.name.errors %}has-error{% endif %}" style="max-width:480px;">
+      <label for="id_name">Migration label <span style="color:var(--muted); font-weight:400;">(optional)</span></label>
+      {{ form.name }}
+      {% if form.name.errors %}<div class="field-error">{{ form.name.errors|join:" · " }}</div>{% endif %}
+    </div>
+
+    <div class="grid two" style="margin-top: 8px;">
+      <div class="mailbox old">
+        <h3><span class="dot"></span> Source mailbox</h3>
+        <div class="field {% if form.old_host.errors %}has-error{% endif %}"><label>IMAP host</label>{{ form.old_host }}{% if form.old_host.errors %}<div class="field-error">{{ form.old_host.errors|join:" · " }}</div>{% endif %}</div>
+        <div class="row">
+          <div class="field {% if form.old_port.errors %}has-error{% endif %}" style="max-width: 130px;"><label>Port</label>{{ form.old_port }}{% if form.old_port.errors %}<div class="field-error">{{ form.old_port.errors|join:" · " }}</div>{% endif %}</div>
+          <div class="field {% if form.old_security.errors %}has-error{% endif %}"><label>Connection security</label>{{ form.old_security }}{% if form.old_security.errors %}<div class="field-error">{{ form.old_security.errors|join:" · " }}</div>{% endif %}</div>
+        </div>
+        <div class="field {% if form.old_username.errors %}has-error{% endif %}"><label>Username</label>{{ form.old_username }}{% if form.old_username.errors %}<div class="field-error">{{ form.old_username.errors|join:" · " }}</div>{% endif %}</div>
+        <div class="field {% if form.old_password.errors %}has-error{% endif %}"><label>Password <span style="color: var(--muted); font-weight: 400;">· in-memory only</span></label>{{ form.old_password }}{% if form.old_password.errors %}<div class="field-error">{{ form.old_password.errors|join:" · " }}</div>{% endif %}</div>
+      </div>
+
+      <div class="mailbox new">
+        <h3><span class="dot"></span> Destination mailbox</h3>
+        <div class="field {% if form.new_host.errors %}has-error{% endif %}"><label>IMAP host</label>{{ form.new_host }}{% if form.new_host.errors %}<div class="field-error">{{ form.new_host.errors|join:" · " }}</div>{% endif %}</div>
+        <div class="row">
+          <div class="field {% if form.new_port.errors %}has-error{% endif %}" style="max-width: 130px;"><label>Port</label>{{ form.new_port }}{% if form.new_port.errors %}<div class="field-error">{{ form.new_port.errors|join:" · " }}</div>{% endif %}</div>
+          <div class="field {% if form.new_security.errors %}has-error{% endif %}"><label>Connection security</label>{{ form.new_security }}{% if form.new_security.errors %}<div class="field-error">{{ form.new_security.errors|join:" · " }}</div>{% endif %}</div>
+        </div>
+        <div class="field {% if form.new_username.errors %}has-error{% endif %}"><label>Username</label>{{ form.new_username }}{% if form.new_username.errors %}<div class="field-error">{{ form.new_username.errors|join:" · " }}</div>{% endif %}</div>
+        <div class="field {% if form.new_password.errors %}has-error{% endif %}"><label>Password <span style="color: var(--muted); font-weight: 400;">· in-memory only</span></label>{{ form.new_password }}{% if form.new_password.errors %}<div class="field-error">{{ form.new_password.errors|join:" · " }}</div>{% endif %}</div>
+      </div>
+    </div>
+
+    {% if migration %}
+    <div style="margin-top: 26px; padding-top: 22px; border-top: 1px solid var(--card-border);">
+      <div style="display:flex; justify-content:space-between; align-items:flex-end; margin-bottom: 14px; gap: 14px; flex-wrap: wrap;">
+        <div>
+          <h2 style="font-size:16px; margin:0 0 4px;">Folder mapping</h2>
+          <p class="lead" style="margin:0;">Click <b>Test connection</b> to list folders and auto-pair them.</p>
+        </div>
+        <span id="test-status" class="muted" style="font-size: 13px;"></span>
+      </div>
+
+      {% if not has_creds %}
+        <div class="alert warn">
+          <svg class="icon-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          <div>No passwords saved yet for this migration. Fill in the password fields below and save the form.</div>
+        </div>
+      {% endif %}
+
+      <div style="border: 1px solid var(--card-border); border-radius: var(--r); overflow: hidden;">
+        <table id="mapping-table">
+          <thead>
+            <tr>
+              <th>Source folder</th>
+              <th style="width: 24px;"></th>
+              <th>Destination folder</th>
+              <th style="width: 140px;">Action</th>
+              <th style="width: 120px;">Pair</th>
+            </tr>
+          </thead>
+          <tbody id="mapping-body">
+            {% for m in mappings %}
+              <tr data-old="{{ m.old_folder }}" {% if m.action == "skip" %}style="background:#fff7ed;"{% endif %}>
+                <td>
+                  <b>{{ m.old_folder }}</b>
+                  {% if m.special_use %}<div class="muted" style="font-size:12px; margin-top:2px;">{{ m.special_use }}</div>{% endif %}
+                </td>
+                <td class="muted" style="text-align:center;">
+                  <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+                </td>
+                <td><input type="text" class="new-name" list="new-folder-list" value="{{ m.new_folder }}" placeholder="(pick or type)"></td>
+                <td>
+                  <select class="action-sel">
+                    <option value="map" {% if m.action == "map" %}selected{% endif %}>Map</option>
+                    <option value="create" {% if m.action == "create" %}selected{% endif %}>Create</option>
+                    <option value="skip" {% if m.action == "skip" %}selected{% endif %}>Skip</option>
+                  </select>
+                </td>
+                <td>
+                  {% if m.pairing_reason == "name" %}<span class="pill green">name</span>
+                  {% elif m.pairing_reason == "special-use" %}<span class="pill green">special-use</span>
+                  {% elif m.pairing_reason == "manual" %}<span class="pill sky">manual</span>
+                  {% else %}<span class="pill orange">no match</span>{% endif %}
+                </td>
+              </tr>
+            {% empty %}
+              <tr><td colspan="5" class="muted" style="text-align:center; padding: 28px 14px;">
+                No folders fetched yet — save credentials, then click <b>Test connection</b>.
+              </td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <datalist id="new-folder-list">
+        {% for m in mappings %}{% if m.new_folder %}<option value="{{ m.new_folder }}">{% endif %}{% endfor %}
+      </datalist>
+    </div>
+    {% endif %}
+
+    <input type="hidden" name="mapping_payload" id="mapping-payload">
+
+    <div class="right" style="margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--card-border); display:flex; justify-content:flex-end; gap: 8px;">
+      {% if migration %}
+        <button type="button" class="btn btn-sky" id="btn-test" {% if not has_creds %}disabled{% endif %}>
+          <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+          Test connection
+        </button>
+      {% endif %}
+      <button type="submit" class="btn btn-primary">
+        <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+        Save
+      </button>
+    </div>
+  </form>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+{% if migration %}
+<script>
+const MIG_ID = {{ migration.id }};
+const csrf = document.querySelector('[name=csrfmiddlewaretoken]').value;
+
+document.querySelectorAll('a[data-disabled="1"]').forEach(a => a.classList.add('is-disabled'));
+
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function pillFor(reason) {
+  if (reason === 'name') return '<span class="pill green">name</span>';
+  if (reason === 'special-use') return '<span class="pill green">special-use</span>';
+  if (reason === 'manual') return '<span class="pill sky">manual</span>';
+  return '<span class="pill orange">no match</span>';
+}
+
+const ARROW_SVG = '<svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>';
+
+function setRowsFromPayload(rows, newFolderNames) {
+  const body = document.getElementById('mapping-body');
+  body.innerHTML = '';
+  document.getElementById('new-folder-list').innerHTML =
+    (newFolderNames || []).map(n => `<option value="${escapeHtml(n)}">`).join('');
+  for (const r of rows) {
+    const tr = document.createElement('tr');
+    tr.dataset.old = r.old;
+    if (r.action === 'skip') tr.style.background = '#fff7ed';
+    tr.innerHTML = `
+      <td><b>${escapeHtml(r.old)}</b>${r.special_use ? `<div class="muted" style="font-size:12px; margin-top:2px;">${escapeHtml(r.special_use)}</div>` : ''}</td>
+      <td class="muted" style="text-align:center;">${ARROW_SVG}</td>
+      <td><input type="text" class="new-name" list="new-folder-list" value="${escapeHtml(r.new || '')}" placeholder="(pick or type)"></td>
+      <td><select class="action-sel">
+        <option value="map"${r.action==='map'?' selected':''}>Map</option>
+        <option value="create"${r.action==='create'?' selected':''}>Create</option>
+        <option value="skip"${r.action==='skip'?' selected':''}>Skip</option>
+      </select></td>
+      <td>${pillFor(r.pairing_reason)}</td>`;
+    body.appendChild(tr);
+  }
+}
+
+document.getElementById('btn-test').addEventListener('click', async () => {
+  const status = document.getElementById('test-status');
+  status.innerHTML = '<span style="color:var(--muted);">Connecting…</span>';
+  try {
+    const resp = await fetch(`/config/${MIG_ID}/test/`, {
+      method: 'POST', headers: {'X-CSRFToken': csrf},
+    });
+    const data = await resp.json();
+    if (!data.ok) {
+      status.innerHTML = `<span style="color:var(--red); font-weight:600;">✗ ${escapeHtml(data.error || 'Connection failed')}</span>`;
+      return;
+    }
+    status.innerHTML = `<span style="color:var(--green); font-weight:600;">✓ ${data.old_folder_count} folders on source · ${data.new_folder_count} on destination</span>`;
+    setRowsFromPayload(data.rows, data.new_folder_names);
+  } catch (e) {
+    status.innerHTML = `<span style="color:var(--red); font-weight:600;">✗ ${escapeHtml(e.message)}</span>`;
+  }
+});
+
+document.getElementById('cfg-form').addEventListener('submit', () => {
+  const rows = [];
+  document.querySelectorAll('#mapping-body tr').forEach(tr => {
+    const old = tr.dataset.old;
+    if (!old) return;
+    rows.push({
+      old,
+      action: tr.querySelector('.action-sel').value,
+      new: tr.querySelector('.new-name').value,
+    });
+  });
+  document.getElementById('mapping-payload').value = JSON.stringify(rows);
+});
+</script>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,26 @@
+{% extends "account/_auth_base.html" %}
+{% block title %}Verify your email · Mailbox Transfer{% endblock %}
+
+{% block content %}
+  <div class="icon-circle ok">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+  </div>
+
+  <h1 class="text-center">Check your inbox</h1>
+  <p class="sub text-center">
+    We've sent you a verification link. Click it to confirm your email address —
+    then an administrator will activate your account.
+  </p>
+
+  <div class="alert warn">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+    <div>
+      Don't see the email? It can take a minute, and may land in spam. If it
+      never arrives, contact your administrator.
+    </div>
+  </div>
+
+  <div class="footer-link">
+    <a href="{% url 'migrator:login' %}">Back to sign in</a>
+  </div>
+{% endblock %}

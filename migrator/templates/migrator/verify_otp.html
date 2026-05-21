@@ -1,0 +1,205 @@
+{% load static %}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Two-Factor Verification · Mailbox Transfer</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #f8fafc;
+    --card: #ffffff;
+    --card-border: #e5e7eb;
+    --text: #0f172a;
+    --text-secondary: #334155;
+    --muted: #64748b;
+    --primary: #4f46e5;
+    --primary-hover: #4338ca;
+    --red: #dc2626;
+    --red-bg: #fef2f2;
+    --red-border: #fecaca;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    font-family: 'Inter', -apple-system, "Segoe UI", system-ui, sans-serif;
+    background:
+      radial-gradient(ellipse 80% 60% at 50% -10%, rgba(79,70,229,.08), transparent 60%),
+      radial-gradient(ellipse 60% 50% at 100% 100%, rgba(124,58,237,.06), transparent 60%),
+      var(--bg);
+    color: var(--text);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    display: flex; align-items: center; justify-content: center;
+    padding: 24px;
+  }
+
+  .login-card {
+    width: 100%; max-width: 420px;
+    background: var(--card);
+    border: 1px solid var(--card-border);
+    border-radius: 16px;
+    padding: 36px 36px 28px;
+    box-shadow:
+      0 1px 2px rgba(15,23,42,.04),
+      0 20px 50px -12px rgba(15,23,42,.12);
+  }
+
+  .brand {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 24px;
+    font-size: 15px; font-weight: 700; letter-spacing: -0.015em;
+  }
+  .brand .logo {
+    width: 32px; height: 32px; border-radius: 8px;
+    background: linear-gradient(135deg, #4f46e5, #7c3aed);
+    display: inline-flex; align-items: center; justify-content: center;
+    color: #fff; box-shadow: 0 2px 8px -2px rgba(79,70,229,.45);
+  }
+
+  .shield {
+    width: 56px; height: 56px;
+    margin: 0 auto 16px;
+    border-radius: 14px;
+    background: linear-gradient(135deg, #eef2ff, #f5f3ff);
+    border: 1px solid #e0e7ff;
+    color: var(--primary);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .shield svg { width: 28px; height: 28px; }
+
+  h1 {
+    font-size: 22px; font-weight: 700; letter-spacing: -0.02em;
+    margin: 0 0 6px; text-align: center;
+  }
+  .sub {
+    color: var(--muted); font-size: 14px; margin: 0 0 22px;
+    text-align: center;
+  }
+  .sub strong { color: var(--text-secondary); }
+
+  form { display: grid; gap: 14px; margin: 0; }
+
+  .otp-input {
+    width: 100%;
+    padding: 16px;
+    background: #ffffff; color: var(--text);
+    border: 1px solid var(--card-border);
+    border-radius: 12px;
+    font-family: 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace;
+    font-size: 24px;
+    font-weight: 600;
+    letter-spacing: 0.5em;
+    text-align: center;
+    transition: border-color .15s, box-shadow .15s;
+  }
+  .otp-input:focus {
+    outline: none; border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(79,70,229,.15);
+  }
+  .otp-input::placeholder {
+    color: #cbd5e1; letter-spacing: 0.5em; font-weight: 400;
+  }
+
+  .submit-btn {
+    width: 100%;
+    padding: 11px 16px;
+    background: var(--primary);
+    color: #fff;
+    border: 1px solid transparent;
+    border-radius: 10px;
+    font-family: inherit; font-size: 14px; font-weight: 600;
+    cursor: pointer;
+    transition: all .15s;
+    box-shadow: 0 1px 2px rgba(79,70,229,.2);
+  }
+  .submit-btn:hover {
+    background: var(--primary-hover);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px -2px rgba(79,70,229,.3);
+  }
+
+  .alert {
+    padding: 10px 12px; border-radius: 8px;
+    font-size: 13px; margin: 0 0 6px;
+    border: 1px solid;
+    display: flex; gap: 8px; align-items: flex-start;
+  }
+  .alert.error { background: var(--red-bg); color: #991b1b; border-color: var(--red-border); }
+  .alert svg { width: 16px; height: 16px; flex-shrink: 0; margin-top: 1px; }
+
+  footer {
+    margin-top: 22px; padding-top: 18px;
+    border-top: 1px solid var(--card-border);
+    font-size: 12px; color: var(--muted); text-align: center;
+  }
+  footer a, footer button {
+    color: var(--primary); text-decoration: none;
+    background: transparent; border: 0; padding: 0; font: inherit; cursor: pointer;
+  }
+  footer a:hover, footer button:hover { text-decoration: underline; }
+  .footer-sep { color: var(--card-border); margin: 0 8px; }
+</style>
+</head>
+<body>
+  <div class="login-card">
+    <div class="brand">
+      <span class="logo">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+      </span>
+      <span>Mailbox Transfer</span>
+    </div>
+
+    <div class="shield">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg>
+    </div>
+
+    <h1>Verification required</h1>
+    <p class="sub">Open your authenticator app and enter the 6-digit code for <strong>{{ request.user.username|default:request.user.email }}</strong>.</p>
+
+    {% if error %}
+      <div class="alert error">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        <span>{{ error }}</span>
+      </div>
+    {% endif %}
+
+    <form method="post" autocomplete="off">
+      {% csrf_token %}
+      <input
+        class="otp-input"
+        name="token"
+        type="text"
+        inputmode="numeric"
+        pattern="[0-9 ]*"
+        maxlength="7"
+        autocomplete="one-time-code"
+        placeholder="000000"
+        autofocus
+        required>
+      <button type="submit" class="submit-btn">Verify</button>
+    </form>
+
+    <footer>
+      <form method="post" action="{% url 'account_logout' %}" style="display: inline; margin: 0; padding: 0;">
+        {% csrf_token %}
+        <button type="submit">Sign out</button>
+      </form>
+      <span class="footer-sep">·</span>
+      <a href="{% url 'two_factor:backup_tokens' %}">Use a backup code</a>
+    </footer>
+  </div>
+
+  <script>
+    // Auto-submit when 6 digits are entered (nicer UX).
+    const input = document.querySelector('.otp-input');
+    input.addEventListener('input', () => {
+      const digits = input.value.replace(/\D/g, '');
+      if (digits.length === 6) input.form.submit();
+    });
+  </script>
+</body>
+</html>

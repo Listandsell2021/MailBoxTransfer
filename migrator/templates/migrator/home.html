@@ -1,0 +1,265 @@
+{% extends "migrator/base.html" %}
+{% block title %}Dashboard · Mailbox Transfer{% endblock %}
+{% block content %}
+
+<style>
+  .tiles { display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; margin-bottom: 22px; }
+  @media (max-width: 1200px) { .tiles { grid-template-columns: repeat(3, 1fr); } }
+  @media (max-width: 720px) { .tiles { grid-template-columns: repeat(2, 1fr); } }
+  .tile {
+    background: var(--card); border: 1px solid var(--card-border);
+    border-radius: var(--r-lg); padding: 18px 20px; box-shadow: var(--card-shadow);
+    display: flex; flex-direction: column; gap: 4px;
+    position: relative; overflow: hidden;
+  }
+  .tile .lbl {
+    font-size: 11px; font-weight: 600; color: var(--muted);
+    text-transform: uppercase; letter-spacing: .05em;
+  }
+  .tile .val {
+    font-size: 28px; font-weight: 700; color: var(--text);
+    letter-spacing: -0.02em; font-variant-numeric: tabular-nums;
+  }
+  .tile .sub { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+  .tile .ico {
+    position: absolute; top: 14px; right: 16px; opacity: .15;
+    width: 38px; height: 38px;
+  }
+  .tile.green .val { color: var(--green); }
+  .tile.red .val   { color: var(--red); }
+  .tile.indigo .val{ color: var(--primary); }
+  .tile.orange .val{ color: var(--orange); }
+
+  .pending-banner {
+    background: linear-gradient(135deg, #fffbeb, #fef3c7);
+    border: 1px solid var(--orange-border);
+    border-radius: var(--r-lg);
+    padding: 14px 18px; margin-bottom: 18px;
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 14px; box-shadow: var(--card-shadow);
+  }
+  .pending-banner .who {
+    display: flex; align-items: center; gap: 12px;
+    font-size: 14px; color: #92400e; min-width: 0;
+  }
+  .pending-banner .icon-circle {
+    width: 36px; height: 36px; border-radius: 50%;
+    background: #fff; color: var(--orange); flex-shrink: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+    box-shadow: 0 1px 2px rgba(217,119,6,.18);
+  }
+  .pending-banner b { color: #78350f; }
+  .pending-banner a.btn-orange {
+    background: var(--orange); color: #fff;
+    padding: 8px 14px; border-radius: 8px;
+    font-size: 13px; font-weight: 600; text-decoration: none;
+    white-space: nowrap; transition: background .15s;
+  }
+  .pending-banner a.btn-orange:hover { background: var(--orange-dark); }
+
+  .fail-row {
+    display: grid;
+    grid-template-columns: 28px 1fr 110px 140px 80px;
+    gap: 14px; align-items: center;
+    padding: 12px 22px;
+    border-bottom: 1px solid var(--card-border);
+    font-size: 13.5px;
+  }
+  .fail-row:last-child { border-bottom: 0; }
+  .fail-row .pill-fail {
+    background: var(--red-bg); color: #991b1b; border: 1px solid var(--red-border);
+    border-radius: 999px; padding: 2px 9px;
+    font-size: 11.5px; font-weight: 600; text-align: center;
+    display: inline-block;
+  }
+  .fail-row .when { color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+  .fail-row .title { font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .fail-row .sub { color: var(--muted); font-size: 12.5px; }
+  .fail-row .icon-fail {
+    width: 24px; height: 24px; border-radius: 6px;
+    background: var(--red-bg); color: var(--red);
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+
+  .badge-status {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px 10px; border-radius: 999px;
+    font-size: 11.5px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: .04em;
+  }
+  .badge-status.complete    { background: var(--green-bg); color: #065f46; }
+  .badge-status.verified    { background: #eef2ff; color: #4338ca; }
+  .badge-status.transferred { background: #eef2ff; color: #4338ca; }
+  .badge-status.backed-up   { background: var(--subtle); color: var(--muted); }
+  .badge-status.in-progress { background: #fef3c7; color: #92400e; }
+  .badge-status.not-started { background: var(--subtle); color: var(--muted); }
+</style>
+
+<div class="page-head">
+  <div>
+    <h1>Dashboard</h1>
+    <p class="page-sub">
+      {% if is_admin_view %}
+        System-wide overview · you have admin access to every migration.
+      {% else %}
+        Overview of your migrations.
+      {% endif %}
+    </p>
+  </div>
+  <div class="actions">
+    <a class="btn btn-primary" href="{% url 'migrator:config_new' %}">
+      <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      New migration
+    </a>
+  </div>
+</div>
+
+{% if is_admin_view and pending_approvals %}
+<div class="pending-banner">
+  <div class="who">
+    <span class="icon-circle">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+    </span>
+    <div>
+      <b>{{ pending_approvals }} user{{ pending_approvals|pluralize }} awaiting approval</b><br>
+      <span style="font-size: 13px; opacity: .85;">They've verified their email and need you to activate them.</span>
+    </div>
+  </div>
+  <a class="btn-orange" href="{% url 'migrator:users' %}?status=pending">
+    Review them →
+  </a>
+</div>
+{% endif %}
+
+<div class="tiles">
+  <div class="tile">
+    <div class="lbl">Migrations</div>
+    <div class="val">{{ total_migrations }}</div>
+    <div class="sub">{% if is_admin_view %}across all users{% else %}you own{% endif %}</div>
+    <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+  </div>
+  <div class="tile green">
+    <div class="lbl">Messages transferred</div>
+    <div class="val">{{ total_transferred }}</div>
+    <div class="sub">of {{ total_backed_up }} backed up</div>
+    <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+  </div>
+  <div class="tile indigo">
+    <div class="lbl">Success rate</div>
+    <div class="val">{{ success_rate }}%</div>
+    <div class="sub">transferred / backed up</div>
+    <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+  </div>
+  <div class="tile {% if failed_24h_count %}red{% endif %}">
+    <div class="lbl">Failed phases · 24h</div>
+    <div class="val">{{ failed_24h_count }}</div>
+    <div class="sub">{% if failed_24h_count %}needs attention{% else %}none recently{% endif %}</div>
+    <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+  </div>
+  <div class="tile orange">
+    <div class="lbl">Storage used</div>
+    <div class="val" style="font-size: 22px;">{{ storage_display }}</div>
+    <div class="sub">{% if is_admin_view %}all users · email bodies in DB{% else %}your email bodies in DB{% endif %}</div>
+    <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+  </div>
+</div>
+
+{% if is_admin_view and user_count is not None %}
+<div class="card" style="display:flex; align-items:center; justify-content:space-between; padding: 16px 20px; margin-bottom: 18px; gap: 14px; flex-wrap: wrap;">
+  <div>
+    <div class="lbl" style="font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .05em;">Users</div>
+    <div style="font-size: 16px; font-weight: 600; color: var(--text); margin-top: 2px;">{{ user_count }} account{{ user_count|pluralize }} on this server</div>
+  </div>
+  <a class="btn btn-primary" href="{% url 'migrator:users' %}">
+    Manage users
+    <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+  </a>
+</div>
+{% endif %}
+
+{% if recent_failures %}
+<div class="card" style="padding: 0; overflow: hidden; margin-bottom: 18px;">
+  <div style="padding: 14px 22px; border-bottom: 1px solid var(--card-border); display:flex; align-items:center; justify-content:space-between;">
+    <div style="font-weight: 600; display: flex; align-items: center; gap: 8px;">
+      <span style="width:8px; height:8px; border-radius:50%; background: var(--red); box-shadow: 0 0 0 3px rgba(220,38,38,.18);"></span>
+      Recent failures
+    </div>
+    <span class="muted" style="font-size: 12.5px;">{{ recent_failures|length }} shown</span>
+  </div>
+  {% for f in recent_failures %}
+    <div class="fail-row">
+      <span class="icon-fail">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </span>
+      <div style="min-width:0;">
+        <div class="title">{{ f.migration.name|default:f.migration.old_username }}</div>
+        <div class="sub">
+          {% if is_admin_view %}owner: {{ f.migration.owner.get_username|default:"—" }} · {% endif %}{{ f.error|truncatechars:100 }}
+        </div>
+      </div>
+      <span class="pill-fail">{{ f.get_phase_display }}</span>
+      <span class="when">{{ f.finished_at|date:"Y-m-d H:i" }}</span>
+      <a class="btn btn-grey" style="padding: 5px 10px; font-size: 12px;" href="{% url 'migrator:report' f.migration.id %}">Open</a>
+    </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<div class="card" style="padding: 0; overflow: hidden;">
+  <div style="padding: 14px 22px; border-bottom: 1px solid var(--card-border); display:flex; align-items:center; justify-content:space-between;">
+    <div style="font-weight: 600;">Recent migrations</div>
+    <a class="muted" style="font-size: 12.5px; text-decoration: none;" href="{% url 'migrator:index' %}">View all →</a>
+  </div>
+  {% if recent %}
+    <table>
+      <thead>
+        <tr>
+          <th style="width: 50px;">#</th>
+          <th>Label</th>
+          {% if is_admin_view %}<th>Owner</th>{% endif %}
+          <th>Source → Destination</th>
+          <th style="width: 130px;">Created</th>
+          <th style="width: 130px;">Status</th>
+          <th style="width: 120px;"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for m in recent %}
+          <tr>
+            <td class="muted" style="font-variant-numeric: tabular-nums;">{{ m.id }}</td>
+            <td>
+              <div style="display:flex; align-items:center; gap:10px;">
+                <span style="width:26px; height:26px; border-radius:7px; background:linear-gradient(135deg,#6366f1,#a855f7); color:#fff; display:inline-flex; align-items:center; justify-content:center; font-size:11.5px; font-weight:700;">
+                  {{ m.name|default:m.new_username|slice:":1"|upper }}
+                </span>
+                <b>{{ m.name|default:"—" }}</b>
+              </div>
+            </td>
+            {% if is_admin_view %}
+              <td class="muted" style="font-size: 13px;">{{ m.owner.get_username|default:"—" }}</td>
+            {% endif %}
+            <td class="muted" style="font-size: 13px;">
+              {{ m.old_username }} <span style="color: var(--grey);">→</span> {{ m.new_username }}
+            </td>
+            <td class="muted" style="font-size: 13px;">{{ m.created_at|date:"Y-m-d H:i" }}</td>
+            <td><span class="badge-status {{ m.overall_status }}">{{ m.overall_status }}</span></td>
+            <td style="text-align:right;">
+              <a class="btn btn-grey" href="{% url 'migrator:report' m.id %}">Report</a>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <div class="empty">
+      <svg class="icon-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+      <b>No migrations yet</b>
+      Create your first migration to get started.
+      <div style="margin-top:14px;">
+        <a class="btn btn-primary" href="{% url 'migrator:config_new' %}">+ New migration</a>
+      </div>
+    </div>
+  {% endif %}
+</div>
+
+{% endblock %}

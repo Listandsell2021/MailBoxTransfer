@@ -1,0 +1,35 @@
+{% extends "account/_auth_base.html" %}
+{% block title %}Confirm email · Mailbox Transfer{% endblock %}
+
+{% block content %}
+  {% if confirmation %}
+    <div class="icon-circle ok">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+    </div>
+    <h1 class="text-center">Confirm your email</h1>
+    <p class="sub text-center">
+      Confirm <b>{{ confirmation.email_address.email }}</b> belongs to you.
+    </p>
+
+    <form method="post" action="{% url 'account_confirm_email' confirmation.key %}">
+      {% csrf_token %}
+      <button type="submit" class="submit-btn">Confirm email</button>
+    </form>
+
+    <div class="footer-link" style="margin-top: 12px;">
+      Verification will only confirm your email. An administrator must still
+      activate your account before you can sign in.
+    </div>
+  {% else %}
+    <div class="icon-circle error">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+    </div>
+    <h1 class="text-center">Link expired</h1>
+    <p class="sub text-center">
+      This verification link is invalid or has expired. Sign up again to receive a new one.
+    </p>
+    <div class="footer-link">
+      <a href="{% url 'account_signup' %}">Sign up</a> · <a href="{% url 'migrator:login' %}">Sign in</a>
+    </div>
+  {% endif %}
+{% endblock %}

@@ -1,0 +1,432 @@
+{% extends "migrator/base.html" %}
+{% block title %}Migration phases · {{ migration.name|default:migration.id }}{% endblock %}
+{% block content %}
+
+<style>
+  /* Phase row */
+  .phase {
+    display: grid;
+    grid-template-columns: 48px 1fr auto;
+    gap: 18px; align-items: center;
+    padding: 18px 4px;
+    border-bottom: 1px solid var(--card-border);
+    transition: background .15s;
+  }
+  .phase:hover { background: var(--hover); }
+  .phases .phase:last-child { border-bottom: 0; }
+  .num {
+    width: 36px; height: 36px; border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; font-weight: 700; font-size: 14px;
+    background: var(--grey);
+    box-shadow: 0 1px 3px rgba(0,0,0,.12), inset 0 1px 0 rgba(255,255,255,.18);
+    position: relative;
+  }
+  .phase[data-state="success"] .num {
+    background: linear-gradient(135deg, #10b981, #059669);
+    box-shadow: 0 2px 8px -2px rgba(5,150,105,.45), inset 0 1px 0 rgba(255,255,255,.2);
+  }
+  .phase[data-state="running"] .num {
+    background: linear-gradient(135deg, #6366f1, #4f46e5);
+    box-shadow: 0 2px 8px -2px rgba(79,70,229,.45), inset 0 1px 0 rgba(255,255,255,.2);
+  }
+  .phase[data-state="failed"]  .num {
+    background: linear-gradient(135deg, #ef4444, #dc2626);
+    box-shadow: 0 2px 8px -2px rgba(220,38,38,.45), inset 0 1px 0 rgba(255,255,255,.2);
+  }
+  .phase[data-state="locked"]  .num {
+    background: linear-gradient(135deg, #94a3b8, #64748b);
+    box-shadow: 0 1px 3px rgba(0,0,0,.1), inset 0 1px 0 rgba(255,255,255,.15);
+  }
+  .phase[data-state="pending"] .num {
+    background: linear-gradient(135deg, #cbd5e1, #94a3b8);
+  }
+  .phase[data-state="running"] .num::after {
+    content: '';
+    position: absolute; inset: -3px;
+    border-radius: 13px;
+    border: 2px solid rgba(99,102,241,.35);
+    animation: pulse 1.6s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 0.4; transform: scale(1); }
+    50% { opacity: 1; transform: scale(1.05); }
+  }
+
+  .phase .meta { min-width: 0; }
+  .phase .meta .title-row {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  }
+  .phase .meta .title  {
+    font-size: 15px; font-weight: 700;
+    color: var(--text); letter-spacing: -0.01em;
+  }
+  .phase .meta .status-pill {
+    font-size: 11px; font-weight: 600; padding: 2px 8px;
+    border-radius: 999px; text-transform: uppercase;
+    letter-spacing: .04em; line-height: 1.4;
+  }
+  .phase[data-state="success"] .status-pill { background: var(--green-bg); color: #065f46; }
+  .phase[data-state="running"] .status-pill { background: #eef2ff; color: #4338ca; }
+  .phase[data-state="failed"]  .status-pill { background: var(--red-bg); color: #991b1b; }
+  .phase[data-state="locked"]  .status-pill { background: var(--subtle); color: var(--muted); }
+  .phase[data-state="pending"] .status-pill { background: var(--subtle); color: var(--muted); }
+
+  .phase .meta .sub    {
+    font-size: 13px; color: var(--muted); margin-top: 4px;
+  }
+  .phase .meta .pctline {
+    display: flex; justify-content: space-between; gap: 12px;
+    align-items: center; margin-top: 8px; font-size: 12px;
+    color: var(--muted); font-variant-numeric: tabular-nums;
+  }
+  .phase .action { display: flex; align-items: center; gap: 8px; }
+
+  /* Stats strip */
+  .stats {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;
+    margin-bottom: 18px;
+  }
+  .stat {
+    background: var(--card); border: 1px solid var(--card-border);
+    border-radius: var(--r); padding: 14px 16px;
+    box-shadow: var(--card-shadow);
+  }
+  .stat .label {
+    font-size: 11px; font-weight: 600; color: var(--muted);
+    text-transform: uppercase; letter-spacing: .05em;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .stat .value {
+    font-size: 22px; font-weight: 700; color: var(--text);
+    margin-top: 4px; letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums;
+  }
+  .stat .value.success { color: var(--green); }
+  .stat .value.running { color: var(--primary); }
+  .stat .value.failed  { color: var(--red); }
+  @media (max-width: 720px) { .stats { grid-template-columns: repeat(2, 1fr); } }
+</style>
+
+<div class="page-head">
+  <div>
+    <h1>Migration phases</h1>
+    <p class="page-sub">Run each phase in order. Live log updates on the right.</p>
+  </div>
+  <div class="actions">
+    <a class="btn btn-grey" href="{% url 'migrator:config_edit' migration.id %}">
+      <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      Configure
+    </a>
+    <a class="btn btn-grey" href="{% url 'migrator:download_backup' migration.id %}" title="Download .mbox backup as ZIP">
+      <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      Download backup
+    </a>
+  </div>
+</div>
+
+<div class="stats">
+  <div class="stat">
+    <div class="label">
+      <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" style="color:var(--green);"><polyline points="20 6 9 17 4 12"/></svg>
+      Backup
+    </div>
+    <div class="value {% if summary.backup.status == 'success' %}success{% elif summary.backup.status == 'running' %}running{% elif summary.backup.status == 'failed' %}failed{% endif %}">{{ summary.backup.status|capfirst|default:"—" }}</div>
+  </div>
+  <div class="stat">
+    <div class="label">
+      <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" style="color:var(--primary);"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+      Transfer
+    </div>
+    <div class="value {% if summary.transfer.status == 'success' %}success{% elif summary.transfer.status == 'running' %}running{% elif summary.transfer.status == 'failed' %}failed{% endif %}">{{ summary.transfer.status|capfirst|default:"—" }}</div>
+  </div>
+  <div class="stat">
+    <div class="label">
+      <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" style="color:var(--sky);"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg>
+      Verify
+    </div>
+    <div class="value {% if summary.verify.status == 'success' %}success{% elif summary.verify.status == 'running' %}running{% elif summary.verify.status == 'failed' %}failed{% endif %}">{{ summary.verify.status|capfirst|default:"—" }}</div>
+  </div>
+  <div class="stat">
+    <div class="label">
+      <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" style="color:var(--red);"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/></svg>
+      Cleanup
+    </div>
+    <div class="value {% if summary.cleanup.status == 'success' %}success{% elif summary.cleanup.status == 'running' %}running{% elif summary.cleanup.status == 'failed' %}failed{% endif %}">
+      {% if not cleanup_unlocked %}Locked{% else %}{{ summary.cleanup.status|capfirst|default:"Ready" }}{% endif %}
+    </div>
+  </div>
+</div>
+
+<div class="grid dash">
+  <div class="card phases">
+    {% with summary.backup as s %}
+    <div class="phase" data-phase="backup" data-state="{{ s.status }}">
+      <div class="num">1</div>
+      <div class="meta">
+        <div class="title-row">
+          <span class="title">Backup</span>
+          <span class="status-pill js-statustext">{{ s.status|capfirst }}</span>
+        </div>
+        <div class="sub js-subtext">
+          {% if s.status == "success" %}{{ s.processed }} messages stored in the database
+          {% elif s.status == "running" %}{{ s.processed }} / {{ s.total }} messages
+          {% elif s.status == "failed" %}{{ s.error|truncatechars:120 }}
+          {% else %}Downloads every message into the database for safekeeping.
+          {% endif %}
+        </div>
+        <div class="pctline">
+          <div class="progress {% if s.status == 'success' %}success{% endif %}" style="flex:1;">
+            <span style="width:{% if s.total %}{% widthratio s.processed s.total 100 %}{% else %}0{% endif %}%"></span>
+          </div>
+          <span class="js-pct">{% if s.total %}{% widthratio s.processed s.total 100 %}%{% else %}—{% endif %}</span>
+        </div>
+      </div>
+      <div class="action">
+        <button class="btn run-btn js-runbtn {% if s.status == 'success' %}btn-grey{% else %}btn-sky{% endif %}"
+                data-phase="backup" {% if not can_run.backup %}disabled{% endif %}>
+          {% if s.status == "success" %}Re-run{% elif s.status == "running" %}Running…{% else %}Run{% endif %}
+        </button>
+      </div>
+    </div>
+    {% endwith %}
+
+    {% with summary.transfer as s %}
+    <div class="phase" data-phase="transfer" data-state="{{ s.status }}{% if not can_run.transfer and s.status == 'pending' %} locked{% endif %}">
+      <div class="num">2</div>
+      <div class="meta">
+        <div class="title-row">
+          <span class="title">Transfer</span>
+          <span class="status-pill js-statustext">
+            {% if not can_run.transfer and s.status == "pending" %}Locked
+            {% else %}{{ s.status|capfirst }}{% endif %}
+          </span>
+        </div>
+        <div class="sub js-subtext">
+          {% if not can_run.transfer and s.status == "pending" %}Backup must complete first.
+          {% elif s.status == "running" %}{{ s.processed }} / {{ s.total }} messages
+          {% elif s.status == "success" %}{{ s.processed }} messages uploaded
+          {% elif s.status == "failed" %}{{ s.error|truncatechars:120 }}
+          {% else %}Uploads each message to the new server, deduplicated by Message-ID.
+          {% endif %}
+        </div>
+        <div class="pctline">
+          <div class="progress {% if s.status == 'success' %}success{% endif %}" style="flex:1;">
+            <span style="width:{% if s.total %}{% widthratio s.processed s.total 100 %}{% else %}0{% endif %}%"></span>
+          </div>
+          <span class="js-pct">{% if s.total %}{% widthratio s.processed s.total 100 %}%{% else %}—{% endif %}</span>
+        </div>
+      </div>
+      <div class="action">
+        <button class="btn run-btn js-runbtn {% if s.status == 'success' %}btn-grey{% else %}btn-sky{% endif %}"
+                data-phase="transfer" {% if not can_run.transfer %}disabled{% endif %}>
+          {% if s.status == "success" %}Re-run{% elif s.status == "running" %}Running…{% else %}Run{% endif %}
+        </button>
+      </div>
+    </div>
+    {% endwith %}
+
+    {% with summary.verify as s %}
+    <div class="phase" data-phase="verify" data-state="{{ s.status }}{% if not can_run.verify and s.status == 'pending' %} locked{% endif %}">
+      <div class="num">3</div>
+      <div class="meta">
+        <div class="title-row">
+          <span class="title">Verify</span>
+          <span class="status-pill js-statustext">
+            {% if not can_run.verify and s.status == "pending" %}Locked
+            {% else %}{{ s.status|capfirst }}{% endif %}
+          </span>
+        </div>
+        <div class="sub js-subtext">
+          {% if not can_run.verify and s.status == "pending" %}Transfer must complete first.
+          {% elif s.status == "failed" %}{{ s.error|truncatechars:120 }}
+          {% else %}Confirms every message reached the new server.
+          {% endif %}
+        </div>
+      </div>
+      <div class="action">
+        <a class="btn btn-grey" href="{% url 'migrator:verification' migration.id %}" title="Open report">
+          <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+          Report
+        </a>
+        <button class="btn run-btn js-runbtn {% if s.status == 'success' %}btn-grey{% else %}btn-sky{% endif %}"
+                data-phase="verify" {% if not can_run.verify %}disabled{% endif %}>
+          {% if s.status == "success" %}Re-run{% elif s.status == "running" %}Running…{% else %}Run{% endif %}
+        </button>
+      </div>
+    </div>
+    {% endwith %}
+
+    {% with summary.cleanup as s %}
+    <div class="phase" data-phase="cleanup" data-state="{% if cleanup_unlocked %}{{ s.status|default:'pending' }}{% else %}locked{% endif %}">
+      <div class="num">4</div>
+      <div class="meta">
+        <div class="title-row">
+          <span class="title">Cleanup</span>
+          <span class="status-pill js-statustext">
+            {% if not cleanup_unlocked %}Locked
+            {% elif s.status == "success" %}Complete
+            {% elif s.status == "failed" %}Failed
+            {% else %}Ready
+            {% endif %}
+          </span>
+        </div>
+        <div class="sub js-subtext">
+          {% if not cleanup_unlocked %}Available only after verification is green.
+          {% elif s.status == "success" %}Old mailbox emptied — backup retained in the database.
+          {% else %}The database backup is retained after cleanup.
+          {% endif %}
+        </div>
+      </div>
+      <div class="action">
+        <a class="btn {% if cleanup_unlocked %}btn-red{% else %}btn-grey is-disabled{% endif %}"
+           href="{% url 'migrator:verification' migration.id %}">
+          {% if cleanup_unlocked %}
+            <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/></svg>
+            Continue
+          {% else %}
+            <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            Locked
+          {% endif %}
+        </a>
+      </div>
+    </div>
+    {% endwith %}
+
+    {% if not has_creds %}
+      <div class="alert warn" style="margin-top:14px;">
+        <svg class="icon-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        <div>
+          No passwords saved for this migration — enter them on the
+          <a href="{% url 'migrator:config_edit' migration.id %}" style="color:#92400e; font-weight:600; text-decoration:underline;">configuration screen</a> before running phases.
+        </div>
+      </div>
+    {% endif %}
+  </div>
+
+  <div class="card" style="padding: 0; display:flex; flex-direction:column;">
+    <div style="display:flex; justify-content:space-between; align-items:center; padding: 14px 18px; border-bottom: 1px solid var(--card-border);">
+      <div style="display:flex; align-items:center; gap:8px;">
+        <span style="width:8px; height:8px; border-radius:50%; background: #10b981; box-shadow: 0 0 0 3px rgba(16,185,129,.2); animation: pulse 2s ease-in-out infinite;"></span>
+        <h2 style="margin:0; font-size:14px; font-weight:600;">Live log</h2>
+      </div>
+      <button id="log-clear" class="btn btn-grey" style="padding:5px 10px; font-size:12px;">
+        <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" style="width:12px; height:12px;"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/></svg>
+        Clear
+      </button>
+    </div>
+    <div id="log" class="log" aria-live="polite" style="border-radius: 0 0 var(--r-lg) var(--r-lg); border-left:0; border-right:0; border-bottom:0; height: 560px;"></div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const MIG_ID = {{ migration.id }};
+const csrf = "{{ csrf_token }}";
+
+// ----- Live log + progress via SSE -----
+function ts() {
+  const d = new Date();
+  return d.toTimeString().slice(0, 8);
+}
+const logEl = document.getElementById('log');
+function append(level, message) {
+  const div = document.createElement('div');
+  div.className = 'line ' + (level || 'info');
+  div.innerHTML = `<span class="ts">[${ts()}]</span> <span class="tag">${level.toUpperCase()}</span> ${escapeText(message)}`;
+  logEl.appendChild(div);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+function escapeText(s) { return String(s ?? '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+document.getElementById('log-clear').addEventListener('click', () => logEl.innerHTML = '');
+
+const PHASE_LABELS = {backup:'Backup', transfer:'Transfer', verify:'Verify', cleanup:'Cleanup'};
+
+function setRunBtn(card, label, disabled, klass) {
+  const btn = card.querySelector('.js-runbtn');
+  if (!btn) return;
+  btn.textContent = label;
+  btn.disabled = !!disabled;
+  if (klass) {
+    btn.classList.remove('btn-sky','btn-grey','btn-red','btn-orange');
+    btn.classList.add(klass);
+  }
+}
+
+// Persist last-seen seq across page reloads so the Hub's history doesn't
+// re-fire old events (which would otherwise loop reloads).
+const SEQ_KEY = `mt:lastSeq:${MIG_ID}`;
+const initialSince = parseInt(localStorage.getItem(SEQ_KEY) || '0', 10);
+const es = new EventSource(`/dashboard/${MIG_ID}/stream/?since=${initialSince}`);
+function rememberSeq(e) {
+  const id = parseInt(e.lastEventId || '0', 10);
+  if (id) localStorage.setItem(SEQ_KEY, String(id));
+}
+es.addEventListener('log', e => {
+  rememberSeq(e);
+  const data = JSON.parse(e.data);
+  append(data.level || 'info', data.message || '');
+});
+es.addEventListener('progress', e => {
+  rememberSeq(e);
+  const data = JSON.parse(e.data);
+  const card = document.querySelector(`.phase[data-phase="${data.phase}"]`);
+  if (!card) return;
+  const bar = card.querySelector('.progress > span');
+  const pct = data.total ? (100 * data.processed / data.total) : 0;
+  bar.style.width = pct + '%';
+  card.querySelector('.js-pct').textContent = data.total ? Math.round(pct) + '%' : '—';
+  card.querySelector('.js-subtext').textContent =
+    `${data.processed.toLocaleString()} / ${data.total.toLocaleString()} messages` + (data.folder ? ` · ${data.folder}` : '');
+});
+let reloadScheduled = false;
+es.addEventListener('phase', e => {
+  rememberSeq(e);
+  const data = JSON.parse(e.data);
+  const card = document.querySelector(`.phase[data-phase="${data.phase}"]`);
+  if (!card) return;
+  const prevState = card.dataset.state;
+  card.dataset.state = data.status;
+  card.querySelector('.js-statustext').textContent = data.status.charAt(0).toUpperCase() + data.status.slice(1);
+  if (data.status === 'success') {
+    setRunBtn(card, 'Re-run', false, 'btn-grey');
+    const prog = card.querySelector('.progress');
+    if (prog) prog.classList.add('success');
+  } else if (data.status === 'running') {
+    setRunBtn(card, 'Running…', true, 'btn-sky');
+  } else if (data.status === 'failed') {
+    setRunBtn(card, 'Run', false, 'btn-sky');
+  }
+  // Only reload on a real transition during this page session — never on a
+  // replayed event for a phase that was already finished when the page opened.
+  const realTransition = prevState === 'running' && (data.status === 'success' || data.status === 'failed');
+  if (realTransition && !reloadScheduled) {
+    reloadScheduled = true;
+    setTimeout(() => location.reload(), 1500);
+  }
+});
+
+// ----- Run buttons -----
+document.querySelectorAll('.run-btn').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    const phase = btn.dataset.phase;
+    const card = btn.closest('.phase');
+    setRunBtn(card, 'Starting…', true);
+    const resp = await fetch(`/dashboard/${MIG_ID}/start/${phase}/`, {
+      method: 'POST', headers: {'X-CSRFToken': csrf},
+    });
+    const data = await resp.json();
+    if (!data.ok) {
+      mtSwal.error(data.error || 'Failed to start', `Could not start ${PHASE_LABELS[phase] || phase}`);
+      setRunBtn(card, 'Run', false, 'btn-sky');
+    } else {
+      setRunBtn(card, 'Running…', true, 'btn-sky');
+      card.dataset.state = 'running';
+      card.querySelector('.js-statustext').textContent = 'Running';
+    }
+  });
+});
+</script>
+{% endblock %}

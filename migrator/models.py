@@ -1,0 +1,149 @@
+from django.conf import settings
+from django.db import models
+
+
+class Migration(models.Model):
+    """One migration session: source mailbox -> destination mailbox."""
+
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="migrations",
+        null=True, blank=True,
+    )
+    name = models.CharField(max_length=200, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    old_host = models.CharField(max_length=255)
+    old_port = models.PositiveIntegerField(default=993)
+    old_username = models.CharField(max_length=255)
+    old_use_ssl = models.BooleanField(default=True)
+
+    new_host = models.CharField(max_length=255)
+    new_port = models.PositiveIntegerField(default=993)
+    new_username = models.CharField(max_length=255)
+    new_use_ssl = models.BooleanField(default=True)
+
+    old_password_enc = models.BinaryField(blank=True, default=b"")
+    new_password_enc = models.BinaryField(blank=True, default=b"")
+
+    def __str__(self) -> str:
+        label = self.name or f"{self.old_username} -> {self.new_username}"
+        return f"Migration #{self.pk} ({label})"
+
+
+class FolderMapping(models.Model):
+    """Pairs an old-server folder with a new-server folder."""
+
+    ACTION_MAP = "map"
+    ACTION_CREATE = "create"
+    ACTION_SKIP = "skip"
+    ACTION_CHOICES = [
+        (ACTION_MAP, "Map to existing folder"),
+        (ACTION_CREATE, "Create on new server"),
+        (ACTION_SKIP, "Skip"),
+    ]
+
+    PAIRING_NAME = "name"
+    PAIRING_SPECIAL_USE = "special-use"
+    PAIRING_MANUAL = "manual"
+    PAIRING_NONE = ""
+
+    migration = models.ForeignKey(
+        Migration, on_delete=models.CASCADE, related_name="folder_mappings"
+    )
+    old_folder = models.CharField(max_length=500)
+    new_folder = models.CharField(max_length=500, blank=True)
+    action = models.CharField(max_length=10, choices=ACTION_CHOICES, default=ACTION_MAP)
+    pairing_reason = models.CharField(max_length=20, blank=True)
+    special_use = models.CharField(max_length=20, blank=True)
+
+    class Meta:
+        unique_together = [("migration", "old_folder")]
+
+    def __str__(self) -> str:
+        return f"{self.old_folder} -> {self.new_folder or '(skip)'}"
+
+
+class PhaseRun(models.Model):
+    """One execution of one phase (Backup, Transfer, Verify, Cleanup)."""
+
+    PHASE_BACKUP = "backup"
+    PHASE_TRANSFER = "transfer"
+    PHASE_VERIFY = "verify"
+    PHASE_CLEANUP = "cleanup"
+    PHASE_CHOICES = [
+        (PHASE_BACKUP, "Backup"),
+        (PHASE_TRANSFER, "Transfer"),
+        (PHASE_VERIFY, "Verify"),
+        (PHASE_CLEANUP, "Cleanup"),
+    ]
+
+    STATUS_PENDING = "pending"
+    STATUS_RUNNING = "running"
+    STATUS_SUCCESS = "success"
+    STATUS_FAILED = "failed"
+    STATUS_CHOICES = [
+        (STATUS_PENDING, "Pending"),
+        (STATUS_RUNNING, "Running"),
+        (STATUS_SUCCESS, "Success"),
+        (STATUS_FAILED, "Failed"),
+    ]
+
+    migration = models.ForeignKey(
+        Migration, on_delete=models.CASCADE, related_name="phase_runs"
+    )
+    phase = models.CharField(max_length=20, choices=PHASE_CHOICES)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING)
+    started_at = models.DateTimeField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+    processed = models.PositiveIntegerField(default=0)
+    total = models.PositiveIntegerField(default=0)
+    error = models.TextField(blank=True)
+    log_path = models.CharField(max_length=500, blank=True)
+
+    class Meta:
+        ordering = ["-started_at", "-id"]
+
+
+class MessageRecord(models.Model):
+    """Per-message ledger keyed by Message-ID for deduplication and DB-backed backup."""
+
+    migration = models.ForeignKey(
+        Migration, on_delete=models.CASCADE, related_name="messages"
+    )
+    folder = models.CharField(max_length=500)
+    message_id = models.CharField(max_length=500)
+    backed_up = models.BooleanField(default=False)
+    transferred = models.BooleanField(default=False)
+    verified = models.BooleanField(default=False)
+    size = models.PositiveIntegerField(default=0)
+
+    raw_bytes = models.BinaryField(blank=True, default=b"")
+    flags = models.TextField(blank=True)
+    internaldate = models.CharField(max_length=64, blank=True)
+    source_uid = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        unique_together = [("migration", "folder", "message_id")]
+        indexes = [
+            models.Index(fields=["migration", "folder"]),
+            models.Index(fields=["migration", "message_id"]),
+        ]
+
+
+class VerificationReport(models.Model):
+    """Result of a Verify phase run; consulted by Cleanup safety checks."""
+
+    migration = models.OneToOneField(
+        Migration, on_delete=models.CASCADE, related_name="verification"
+    )
+    created_at = models.DateTimeField(auto_now=True)
+    total_old = models.PositiveIntegerField(default=0)
+    total_new = models.PositiveIntegerField(default=0)
+    missing_total = models.PositiveIntegerField(default=0)
+    folders_json = models.JSONField(default=dict)
+
+    @property
+    def all_green(self) -> bool:
+        return self.missing_total == 0 and bool(self.folders_json)

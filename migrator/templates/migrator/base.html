@@ -1,0 +1,648 @@
+{% load static %}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{% block title %}Mailbox Transfer Tool{% endblock %}</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    /* Surfaces */
+    --bg: #f8fafc;
+    --card: #ffffff;
+    --card-border: #e5e7eb;
+    --card-shadow: 0 1px 2px rgba(15,23,42,.04), 0 0 0 1px rgba(15,23,42,.02);
+    --card-shadow-lg: 0 4px 12px -2px rgba(15,23,42,.06), 0 0 0 1px rgba(15,23,42,.04);
+    --subtle: #f1f5f9;
+    --hover: #f8fafc;
+
+    /* Text */
+    --text: #0f172a;
+    --text-secondary: #334155;
+    --muted: #64748b;
+    --link: #4f46e5;
+
+    /* Brand / primary */
+    --navy: #0f172a;
+    --navy-dark: #4338ca;
+    --primary: #4f46e5;
+    --primary-hover: #4338ca;
+
+    /* Accents */
+    --sky: #2563eb;
+    --sky-dark: #1d4ed8;
+    --green: #059669;
+    --green-bg: #ecfdf5;
+    --green-border: #a7f3d0;
+    --orange: #d97706;
+    --orange-dark: #b45309;
+    --orange-bg: #fffbeb;
+    --orange-border: #fde68a;
+    --red: #dc2626;
+    --red-bg: #fef2f2;
+    --red-border: #fecaca;
+    --grey: #94a3b8;
+    --grey-bg: #f1f5f9;
+
+    /* Log */
+    --log-bg: #0b1220;
+    --log-text: #e2e8f0;
+
+    /* Radii */
+    --r-sm: 6px;
+    --r: 10px;
+    --r-lg: 14px;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    font-family: 'Inter', -apple-system, "Segoe UI", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.5;
+    font-feature-settings: "cv11", "ss01";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* App shell (sidebar + main) */
+  :root { --sidebar-w: 232px; }
+  .app-shell { display: flex; min-height: 100vh; }
+
+  aside.sidebar {
+    width: var(--sidebar-w); flex-shrink: 0;
+    background: #ffffff;
+    border-right: 1px solid var(--card-border);
+    display: flex; flex-direction: column;
+    padding: 18px 14px;
+    position: sticky; top: 0; height: 100vh;
+    z-index: 20;
+  }
+  aside.sidebar .brand {
+    display: flex; align-items: center; gap: 10px;
+    padding: 4px 8px 16px;
+    font-size: 15px; font-weight: 700; letter-spacing: -0.015em;
+    color: var(--text);
+    border-bottom: 1px solid var(--card-border);
+    margin-bottom: 14px;
+  }
+  aside.sidebar .brand .logo {
+    width: 28px; height: 28px; border-radius: 7px;
+    background: linear-gradient(135deg, #4f46e5, #7c3aed);
+    display: inline-flex; align-items: center; justify-content: center;
+    color: #fff; box-shadow: 0 2px 8px -2px rgba(79,70,229,.45);
+  }
+  aside.sidebar .nav { display: flex; flex-direction: column; gap: 2px; }
+  aside.sidebar .nav .section-label {
+    font-size: 10.5px; font-weight: 700; color: var(--muted);
+    text-transform: uppercase; letter-spacing: .06em;
+    padding: 14px 10px 6px;
+  }
+  aside.sidebar .nav a, aside.sidebar .nav button {
+    display: flex; align-items: center; gap: 10px;
+    color: var(--text-secondary); text-decoration: none;
+    padding: 9px 10px; border-radius: var(--r-sm);
+    font-weight: 500; font-size: 13.5px; transition: all .12s;
+    background: transparent; border: 0; cursor: pointer; font-family: inherit; width: 100%; text-align: left;
+  }
+  aside.sidebar .nav a:hover, aside.sidebar .nav button:hover {
+    background: var(--subtle); color: var(--text);
+  }
+  aside.sidebar .nav a.active {
+    background: #eef2ff; color: var(--primary); font-weight: 600;
+  }
+  aside.sidebar .nav a.active svg { color: var(--primary); }
+  aside.sidebar .nav .icon-sm { width: 16px; height: 16px; }
+  aside.sidebar .user-area {
+    margin-top: auto; position: relative;
+    border-top: 1px solid var(--card-border);
+  }
+  aside.sidebar .user-card {
+    padding: 12px 10px 10px;
+    display: flex; align-items: center; gap: 10px;
+    background: transparent; border: 0;
+    width: 100%; font: inherit; color: inherit; cursor: pointer;
+    text-align: left; transition: background .12s;
+    border-radius: 0;
+  }
+  aside.sidebar .user-card:hover { background: var(--subtle); }
+  aside.sidebar .user-card .chev {
+    margin-left: auto; color: var(--muted); flex-shrink: 0;
+    transition: transform .15s ease;
+  }
+  aside.sidebar .user-card[aria-expanded="true"] .chev { transform: rotate(180deg); }
+  aside.sidebar .signout-form {
+    position: absolute; left: 0; right: 0; bottom: 100%;
+    margin: 0; padding: 4px 0;
+    background: #ffffff;
+    border: 1px solid var(--card-border);
+    border-radius: var(--r);
+    box-shadow: 0 8px 20px -6px rgba(15,23,42,.18);
+    transform: translateY(6px);
+    opacity: 0; pointer-events: none; visibility: hidden;
+    transition: opacity .15s ease, transform .15s ease, visibility 0s linear .15s;
+    z-index: 30;
+  }
+  aside.sidebar .signout-form.is-open {
+    opacity: 1; transform: translateY(-6px); pointer-events: auto; visibility: visible;
+    transition: opacity .15s ease, transform .15s ease, visibility 0s;
+  }
+  aside.sidebar .signout-form button {
+    display: flex; align-items: center; gap: 10px; width: 100%;
+    color: var(--muted); background: transparent; border: 0;
+    padding: 9px 10px; border-radius: var(--r-sm);
+    font: inherit; font-weight: 500; font-size: 13.5px; cursor: pointer;
+    text-align: left; transition: all .12s;
+  }
+  aside.sidebar .signout-form button:hover { background: var(--subtle); color: var(--red); }
+  aside.sidebar .signout-form button:hover svg { color: var(--red); }
+  aside.sidebar .signout-form .icon-sm { width: 16px; height: 16px; }
+  aside.sidebar .user-card .avatar {
+    width: 30px; height: 30px; border-radius: 50%;
+    background: linear-gradient(135deg, #6366f1, #a855f7); color: #fff;
+    font-size: 12px; font-weight: 700;
+    display: inline-flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  aside.sidebar .user-card .who { line-height: 1.25; min-width: 0; }
+  aside.sidebar .user-card .who .name {
+    font-size: 13px; font-weight: 600; color: var(--text);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  aside.sidebar .user-card .who .role {
+    font-size: 11px; color: var(--muted); font-weight: 500;
+  }
+  aside.sidebar .admin-pill {
+    display: inline-block; font-size: 9.5px; font-weight: 700;
+    color: #4338ca; background: #eef2ff; border-radius: 999px;
+    padding: 1px 6px; letter-spacing: .04em; text-transform: uppercase;
+    margin-left: 4px;
+  }
+  @media (max-width: 860px) {
+    .app-shell { flex-direction: column; }
+    aside.sidebar { width: 100%; height: auto; position: static;
+      flex-direction: row; flex-wrap: wrap; gap: 8px; padding: 12px 14px; align-items: center; }
+    aside.sidebar .brand { border-bottom: 0; padding: 0; margin: 0; }
+    aside.sidebar .nav { flex-direction: row; flex-wrap: wrap; flex: 1; justify-content: flex-end; }
+    aside.sidebar .user-area { margin: 0; border-top: 0; border-left: 1px solid var(--card-border); padding-left: 4px; }
+    aside.sidebar .user-card { padding: 4px 12px; }
+    aside.sidebar .signout-form { left: auto; right: 0; bottom: auto; top: 100%; }
+    aside.sidebar .signout-form button { padding: 7px 11px; }
+  }
+
+  main { padding: 28px 36px; flex: 1; min-width: 0; }
+
+  /* Cards */
+  .card {
+    background: var(--card); border: 1px solid var(--card-border);
+    border-radius: var(--r-lg); padding: 24px; margin-bottom: 18px;
+    box-shadow: var(--card-shadow);
+  }
+  .card h2 {
+    font-size: 18px; font-weight: 700; letter-spacing: -0.015em;
+    margin: 0 0 4px; color: var(--text);
+  }
+  .card .lead { color: var(--muted); font-size: 14px; margin: 0 0 18px; }
+  h3 {
+    font-size: 14px; font-weight: 600; margin: 18px 0 10px;
+    color: var(--text); letter-spacing: -0.005em;
+  }
+
+  /* Form fields */
+  label {
+    display: block; font-size: 12px; font-weight: 600;
+    color: var(--text-secondary); margin: 0 0 6px;
+  }
+  input[type=text], input[type=number], input[type=password], input[type=email],
+  select, textarea {
+    width: 100%; padding: 9px 12px;
+    background: #ffffff; color: var(--text);
+    border: 1px solid var(--card-border); border-radius: var(--r-sm);
+    font: inherit; font-size: 14px;
+    transition: border-color .15s, box-shadow .15s, background .15s;
+  }
+  input:focus, select:focus, textarea:focus {
+    outline: none; border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(79,70,229,.12);
+  }
+  input::placeholder { color: #94a3b8; }
+  input[type=checkbox] {
+    accent-color: var(--primary); width: 16px; height: 16px;
+    transform: translateY(1px); margin-right: 6px;
+  }
+  .field { margin-bottom: 14px; }
+  .field.has-error input, .field.has-error select, .field.has-error textarea {
+    border-color: var(--red); background: #fef2f2;
+  }
+  .field-error { color: var(--red); font-size: 12px; margin-top: 4px; font-weight: 500; }
+  select {
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>");
+    background-repeat: no-repeat; background-position: right 11px center;
+    padding-right: 32px; appearance: none; -webkit-appearance: none;
+  }
+
+  /* Buttons */
+  button, .btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    border: 1px solid transparent; border-radius: var(--r-sm);
+    padding: 8px 14px; font-weight: 600; font-size: 13.5px;
+    cursor: pointer; font-family: inherit; line-height: 1.2;
+    text-decoration: none; transition: all .15s;
+    white-space: nowrap; user-select: none;
+  }
+  .btn-primary {
+    background: var(--primary); color: #fff;
+    box-shadow: 0 1px 2px rgba(79,70,229,.18);
+  }
+  .btn-primary:hover { background: var(--primary-hover); transform: translateY(-1px); box-shadow: 0 2px 6px rgba(79,70,229,.25); }
+  .btn-sky { background: var(--sky); color: #fff; box-shadow: 0 1px 2px rgba(37,99,235,.18); }
+  .btn-sky:hover { background: var(--sky-dark); transform: translateY(-1px); box-shadow: 0 2px 6px rgba(37,99,235,.25); }
+  .btn-grey {
+    background: #ffffff; color: var(--text);
+    border-color: var(--card-border);
+    box-shadow: 0 1px 2px rgba(15,23,42,.04);
+  }
+  .btn-grey:hover { background: var(--subtle); border-color: #d1d5db; }
+  .btn-orange { background: var(--orange); color: #fff; box-shadow: 0 1px 2px rgba(217,119,6,.18); }
+  .btn-orange:hover { background: var(--orange-dark); transform: translateY(-1px); }
+  .btn-red { background: var(--red); color: #fff; box-shadow: 0 1px 2px rgba(220,38,38,.18); }
+  .btn-red:hover { background: #b91c1c; transform: translateY(-1px); box-shadow: 0 2px 6px rgba(220,38,38,.25); }
+  button[disabled], .btn[disabled], .btn.is-disabled {
+    opacity: 0.5; cursor: not-allowed; pointer-events: none;
+    transform: none !important; box-shadow: none !important;
+  }
+
+  /* Tables */
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { padding: 12px 14px; border-bottom: 1px solid var(--card-border); text-align: left; vertical-align: middle; }
+  th {
+    font-size: 11px; color: var(--muted); text-transform: uppercase;
+    letter-spacing: .05em; font-weight: 600; background: #fafbfc;
+  }
+  tr:last-child td { border-bottom: 0; }
+  tbody tr { transition: background .12s; }
+  tbody tr:hover { background: var(--hover); }
+  tr.alt td { background: transparent; }
+
+  /* Pills */
+  .pill {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 3px 9px; border-radius: 999px;
+    font-size: 11.5px; font-weight: 600;
+    border: 1px solid transparent; line-height: 1.4;
+  }
+  .pill.green { background: var(--green-bg); color: #065f46; border-color: var(--green-border); }
+  .pill.red   { background: var(--red-bg); color: #991b1b; border-color: var(--red-border); }
+  .pill.orange{ background: var(--orange-bg); color: var(--orange-dark); border-color: var(--orange-border); }
+  .pill.grey  { background: var(--subtle); color: var(--muted); border-color: var(--card-border); }
+  .pill.sky   { background: #eff6ff; color: var(--sky-dark); border-color: #bfdbfe; }
+
+  /* Progress bar */
+  .progress {
+    background: #e5e7eb; height: 6px; border-radius: 999px;
+    overflow: hidden; margin: 6px 0 4px;
+  }
+  .progress > span {
+    display: block; height: 100%;
+    background: linear-gradient(90deg, #4f46e5, #6366f1);
+    transition: width .3s ease;
+  }
+  .progress.success > span { background: linear-gradient(90deg, #059669, #10b981); }
+  .progress.warn > span { background: linear-gradient(90deg, #d97706, #f59e0b); }
+
+  /* Layout */
+  .grid { display: grid; gap: 18px; }
+  .grid.two { grid-template-columns: 1fr 1fr; }
+  .grid.dash { grid-template-columns: 1fr 380px; }
+  @media (max-width: 980px) { .grid.two, .grid.dash { grid-template-columns: 1fr; } }
+  .row { display: flex; gap: 14px; }
+  .row > * { flex: 1; }
+  .right { text-align: right; }
+  .muted { color: var(--muted); font-size: 13px; }
+  code {
+    background: var(--subtle); padding: 1px 6px; border-radius: 4px;
+    font-size: 12.5px; color: var(--text-secondary);
+    font-family: 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace;
+  }
+
+  /* Mailbox panels (source / destination) */
+  .mailbox {
+    border-radius: var(--r); padding: 20px;
+    border: 1px solid var(--card-border);
+    background: #fafbfc; position: relative;
+  }
+  .mailbox.old {
+    background: linear-gradient(180deg, #fffbeb 0%, #ffffff 60%);
+    border-color: #fde68a;
+  }
+  .mailbox.new {
+    background: linear-gradient(180deg, #ecfdf5 0%, #ffffff 60%);
+    border-color: #a7f3d0;
+  }
+  .mailbox h3 {
+    margin: 0 0 18px; font-size: 14px; font-weight: 700;
+    display: flex; align-items: center; gap: 8px;
+    text-transform: uppercase; letter-spacing: .04em;
+  }
+  .mailbox.old h3 { color: var(--orange-dark); }
+  .mailbox.new h3 { color: #047857; }
+  .mailbox h3 .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    box-shadow: 0 0 0 3px currentColor; opacity: .9;
+  }
+  .mailbox.old h3 .dot { background: var(--orange); color: rgba(217,119,6,.15); }
+  .mailbox.new h3 .dot { background: var(--green); color: rgba(5,150,105,.15); }
+  .mailbox input, .mailbox select { background: #fff; }
+  .mailbox label { color: var(--text-secondary); }
+
+  /* Alerts */
+  .alert  {
+    padding: 12px 14px; border-radius: var(--r);
+    font-size: 14px; margin-bottom: 14px;
+    border: 1px solid transparent;
+    display: flex; gap: 10px; align-items: flex-start;
+  }
+  .alert.error { background: var(--red-bg); color: #991b1b; border-color: var(--red-border); }
+  .alert.ok    { background: var(--green-bg); color: #065f46; border-color: var(--green-border); }
+  .alert.warn  { background: var(--orange-bg); color: #92400e; border-color: var(--orange-border); }
+  .alert .icon-lg { margin-top: 1px; flex-shrink: 0; }
+
+  /* Live log (dark) */
+  .log {
+    background: var(--log-bg); color: var(--log-text);
+    border-radius: var(--r); padding: 14px;
+    height: 520px; overflow-y: auto;
+    font-family: 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace;
+    font-size: 12.5px; line-height: 1.6;
+    white-space: pre-wrap;
+    border: 1px solid #1e293b;
+  }
+  .log::-webkit-scrollbar { width: 8px; }
+  .log::-webkit-scrollbar-track { background: transparent; }
+  .log::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+  .log .line { padding: 1px 0; }
+  .log .info  { color: var(--log-text); }
+  .log .warn  { color: #fbbf24; }
+  .log .error { color: #f87171; }
+  .log .ts    { color: #64748b; }
+  .log .tag   { color: #818cf8; font-weight: 600; }
+
+  /* Icon helper */
+  .icon { width: 16px; height: 16px; flex-shrink: 0; stroke-width: 2; }
+  .icon-sm { width: 14px; height: 14px; flex-shrink: 0; stroke-width: 2; }
+  .icon-lg { width: 20px; height: 20px; flex-shrink: 0; stroke-width: 2; }
+
+  /* Page header (inside main) */
+  .page-head {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 6px; gap: 14px;
+  }
+  .page-head h1 {
+    font-size: 22px; font-weight: 700; letter-spacing: -0.02em;
+    margin: 0; color: var(--text);
+  }
+  .page-head .actions { display: flex; gap: 8px; align-items: center; }
+  .page-sub { color: var(--muted); font-size: 14px; margin: 0 0 22px; }
+
+  /* Empty state */
+  .empty {
+    padding: 48px 24px; text-align: center; color: var(--muted);
+    border: 1px dashed var(--card-border); border-radius: var(--r);
+    background: #fafbfc;
+  }
+  .empty .icon-lg { color: #cbd5e1; margin: 0 auto 10px; display: block; width: 32px; height: 32px; }
+  .empty b { color: var(--text); display: block; margin-bottom: 4px; }
+
+  /* SweetAlert2 theme */
+  .swal2-popup.mt-swal {
+    border-radius: 14px;
+    font-family: 'Inter', -apple-system, "Segoe UI", system-ui, sans-serif;
+    padding: 28px 24px 22px;
+    border: 1px solid #e5e7eb;
+    box-shadow: 0 20px 50px -12px rgba(15,23,42,.25);
+  }
+  .swal2-popup.mt-swal .swal2-title {
+    font-size: 18px; font-weight: 700; color: #0f172a;
+    letter-spacing: -0.015em; margin-top: 4px;
+  }
+  .swal2-popup.mt-swal .swal2-html-container {
+    font-size: 14px; color: #475569; line-height: 1.55;
+    margin-top: 6px;
+  }
+  .swal2-popup.mt-swal .swal2-html-container code {
+    background: #f1f5f9; padding: 1px 6px; border-radius: 4px;
+    font-size: 12.5px; color: #334155;
+    font-family: 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace;
+  }
+  .swal2-popup.mt-swal .swal2-icon.swal2-warning {
+    border-color: #fde68a; color: #d97706;
+  }
+  .swal2-popup.mt-swal .swal2-icon.swal2-error {
+    border-color: #fecaca; color: #dc2626;
+  }
+  .swal2-popup.mt-swal .swal2-icon.swal2-success {
+    border-color: #a7f3d0; color: #059669;
+  }
+  .swal2-popup.mt-swal .swal2-icon.swal2-info {
+    border-color: #bfdbfe; color: #2563eb;
+  }
+  .swal2-popup.mt-swal .swal2-actions { gap: 8px; margin-top: 22px; }
+  .swal2-popup.mt-swal .swal2-styled {
+    padding: 9px 18px; font-size: 13.5px; font-weight: 600;
+    border-radius: 8px; box-shadow: none; margin: 0;
+    transition: all .15s;
+  }
+  .swal2-popup.mt-swal .swal2-styled.swal2-confirm {
+    background: #4f46e5; color: #fff;
+    box-shadow: 0 1px 2px rgba(79,70,229,.2);
+  }
+  .swal2-popup.mt-swal .swal2-styled.swal2-confirm:hover { background: #4338ca; }
+  .swal2-popup.mt-swal.mt-swal--danger .swal2-styled.swal2-confirm {
+    background: #dc2626; box-shadow: 0 1px 2px rgba(220,38,38,.2);
+  }
+  .swal2-popup.mt-swal.mt-swal--danger .swal2-styled.swal2-confirm:hover { background: #b91c1c; }
+  .swal2-popup.mt-swal .swal2-styled.swal2-cancel {
+    background: #fff; color: #0f172a; border: 1px solid #e5e7eb;
+  }
+  .swal2-popup.mt-swal .swal2-styled.swal2-cancel:hover { background: #f1f5f9; }
+  .swal2-backdrop-show { backdrop-filter: blur(2px); background: rgba(15,23,42,.45) !important; }
+  /* Toasts must never darken the page — override the backdrop rule above for any
+     container that holds a toast popup. */
+  .swal2-container:has(.swal2-toast) {
+    background: transparent !important;
+    backdrop-filter: none !important;
+    pointer-events: none;
+  }
+  .swal2-container:has(.swal2-toast) .swal2-toast { pointer-events: auto; }
+  .swal2-toast.mt-swal {
+    padding: 12px 14px !important;
+    border: 1px solid #e5e7eb;
+    box-shadow: 0 8px 24px -8px rgba(15,23,42,.18);
+  }
+  .swal2-toast.mt-swal .swal2-title { font-size: 14px; margin: 0; }
+</style>
+<script src="https://unpkg.com/htmx.org@1.9.12" integrity="sha384-ujb1lZYygJmzgSwoxRggbCHcjc0rB2XoQrxeTUQyRjrOnlCoYta87iKBWq3EsdM2" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<script>
+  // Project-wide SweetAlert2 helpers. Loaded once in base.html — every page can call mtSwal.*
+  window.mtSwal = {
+    error(message, title = 'Something went wrong') {
+      return Swal.fire({
+        title,
+        text: String(message ?? ''),
+        icon: 'error',
+        confirmButtonText: 'Close',
+        customClass: { popup: 'mt-swal' },
+        buttonsStyling: false,
+      });
+    },
+    warn(message, title = 'Heads up') {
+      return Swal.fire({
+        title,
+        text: String(message ?? ''),
+        icon: 'warning',
+        confirmButtonText: 'OK',
+        customClass: { popup: 'mt-swal' },
+        buttonsStyling: false,
+      });
+    },
+    info(message, title = '') {
+      return Swal.fire({
+        title: title || undefined,
+        text: String(message ?? ''),
+        icon: 'info',
+        confirmButtonText: 'OK',
+        customClass: { popup: 'mt-swal' },
+        buttonsStyling: false,
+      });
+    },
+    success(message, title = '') {
+      return Swal.fire({
+        title: title || undefined,
+        text: String(message ?? ''),
+        icon: 'success',
+        confirmButtonText: 'OK',
+        customClass: { popup: 'mt-swal' },
+        buttonsStyling: false,
+      });
+    },
+    toast(message, icon = 'success') {
+      return Swal.fire({
+        toast: true,
+        position: 'top-end',
+        timer: 3200,
+        timerProgressBar: true,
+        showConfirmButton: false,
+        icon,
+        title: String(message ?? ''),
+        customClass: { popup: 'mt-swal' },
+      });
+    },
+    confirm({ title = 'Are you sure?', html = '', text = '', confirmText = 'Confirm', cancelText = 'Cancel', danger = false } = {}) {
+      return Swal.fire({
+        title,
+        html: html || undefined,
+        text: html ? undefined : text,
+        icon: danger ? 'warning' : 'question',
+        iconColor: danger ? '#d97706' : undefined,
+        showCancelButton: true,
+        confirmButtonText: confirmText,
+        cancelButtonText: cancelText,
+        reverseButtons: true,
+        focusCancel: true,
+        customClass: { popup: 'mt-swal' + (danger ? ' mt-swal--danger' : '') },
+        buttonsStyling: false,
+      });
+    },
+  };
+  // Belt-and-braces: route any stray window.alert() through Swal too.
+  window.alert = (msg) => window.mtSwal.warn(String(msg ?? ''));
+</script>
+</head>
+<body>
+<div class="app-shell">
+{% if user.is_authenticated %}
+<aside class="sidebar">
+  <div class="brand">
+    <span class="logo">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+    </span>
+    <span>Mailbox Transfer</span>
+  </div>
+  <nav class="nav">
+    <a href="{% url 'migrator:home' %}" class="{% if nav_active == 'home' %}active{% endif %}">
+      <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>
+      Dashboard
+    </a>
+    <a href="{% url 'migrator:index' %}" class="{% if nav_active == 'migrations' %}active{% endif %}">
+      <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+      Migrations
+    </a>
+    {% if user.is_superuser or user.is_staff %}
+    <a href="{% url 'migrator:users' %}" class="{% if nav_active == 'users' %}active{% endif %}">
+      <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      Users
+    </a>
+    {% endif %}
+    <a href="{% url 'migrator:config_new' %}" class="{% if nav_active == 'new' %}active{% endif %}">
+      <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      New migration
+    </a>
+  </nav>
+  <div class="user-area">
+    <form method="post" action="{% url 'account_logout' %}" class="signout-form" id="signoutForm">
+      {% csrf_token %}
+      <button type="submit" title="Sign out{% if user.email %} ({{ user.email }}){% endif %}">
+        <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        Sign out
+      </button>
+    </form>
+    <button type="button" class="user-card" id="userCardToggle" aria-expanded="false" aria-controls="signoutForm">
+      <span class="avatar">{{ user.get_username|slice:":1"|upper }}</span>
+      <div class="who">
+        <div class="name">{{ user.get_username }}{% if user.is_superuser or user.is_staff %}<span class="admin-pill">Admin</span>{% endif %}</div>
+        <div class="role">{% if user.email %}{{ user.email }}{% else %}Signed in{% endif %}</div>
+      </div>
+      <svg class="chev icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
+    </button>
+  </div>
+  <script>
+  (function(){
+    const toggle = document.getElementById('userCardToggle');
+    const form = document.getElementById('signoutForm');
+    if (!toggle || !form) return;
+    toggle.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const open = form.classList.toggle('is-open');
+      toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    });
+    document.addEventListener('click', (e) => {
+      if (form.classList.contains('is-open') && !form.contains(e.target) && !toggle.contains(e.target)) {
+        form.classList.remove('is-open');
+        toggle.setAttribute('aria-expanded', 'false');
+      }
+    });
+  })();
+  </script>
+</aside>
+{% endif %}
+<main>
+{% block content %}{% endblock %}
+</main>
+</div>
+{% if messages %}
+<script>
+  (function(){
+    const levelToIcon = { error: 'error', warning: 'warning', success: 'success', info: 'info', debug: 'info' };
+    {% for m in messages %}
+    mtSwal.toast("{{ m.message|escapejs }}", levelToIcon["{{ m.level_tag }}"] || 'info');
+    {% endfor %}
+  })();
+</script>
+{% endif %}
+{% block scripts %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,260 @@
+{% extends "migrator/base.html" %}
+{% block title %}Report · {{ migration.name|default:migration.id }}{% endblock %}
+{% block content %}
+
+<style>
+  .meta-card {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px 32px;
+    padding: 18px 22px;
+  }
+  .meta-card .label {
+    font-size: 11px; font-weight: 600; color: var(--muted);
+    text-transform: uppercase; letter-spacing: .05em; margin-bottom: 2px;
+  }
+  .meta-card .value { font-size: 14px; color: var(--text); }
+  .meta-card .value .host { color: var(--muted); font-size: 12.5px; }
+  @media (max-width: 720px) { .meta-card { grid-template-columns: 1fr; } }
+
+  .stats {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;
+    margin-bottom: 18px;
+  }
+  .stat {
+    background: var(--card); border: 1px solid var(--card-border);
+    border-radius: var(--r); padding: 14px 16px; box-shadow: var(--card-shadow);
+  }
+  .stat .label {
+    font-size: 11px; font-weight: 600; color: var(--muted);
+    text-transform: uppercase; letter-spacing: .05em;
+  }
+  .stat .value {
+    font-size: 24px; font-weight: 700; color: var(--text);
+    margin-top: 4px; letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums;
+  }
+  .stat .value.green  { color: var(--green); }
+  .stat .value.red    { color: var(--red); }
+  .stat .value.muted  { color: var(--muted); }
+  @media (max-width: 720px) { .stats { grid-template-columns: repeat(2, 1fr); } }
+
+  .phase-row {
+    display: grid;
+    grid-template-columns: 40px 1fr 130px 160px 110px;
+    gap: 16px; align-items: center;
+    padding: 14px 22px;
+    border-bottom: 1px solid var(--card-border);
+  }
+  .phase-row:last-child { border-bottom: 0; }
+  .phase-row .num {
+    width: 30px; height: 30px; border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; font-weight: 700; font-size: 13px;
+    background: var(--grey);
+  }
+  .phase-row[data-state="success"] .num { background: linear-gradient(135deg, #10b981, #059669); }
+  .phase-row[data-state="failed"]  .num { background: linear-gradient(135deg, #ef4444, #dc2626); }
+  .phase-row[data-state="running"] .num { background: linear-gradient(135deg, #6366f1, #4f46e5); }
+  .phase-row .title { font-weight: 600; color: var(--text); }
+  .phase-row .when { font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .phase-row .count { text-align: right; font-variant-numeric: tabular-nums; font-size: 13.5px; color: var(--text); }
+  .phase-row .error-line {
+    grid-column: 2 / -1; color: var(--red); font-size: 12.5px; margin-top: 2px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+
+  .badge-status {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px 10px; border-radius: 999px;
+    font-size: 12px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: .04em;
+  }
+  .badge-status.complete    { background: var(--green-bg); color: #065f46; }
+  .badge-status.verified    { background: #eef2ff; color: #4338ca; }
+  .badge-status.transferred { background: #eef2ff; color: #4338ca; }
+  .badge-status.backed-up   { background: var(--subtle); color: var(--muted); }
+  .badge-status.in-progress { background: #fef3c7; color: #92400e; }
+  .badge-status.not-started { background: var(--subtle); color: var(--muted); }
+</style>
+
+<div class="page-head">
+  <div>
+    <h1 style="display:flex; align-items:center; gap:12px;">
+      Report
+      <span class="badge-status {{ overall_status }}">{{ overall_status }}</span>
+    </h1>
+    <p class="page-sub">Everything that's happened on this migration so far.</p>
+  </div>
+  <div class="actions">
+    <a class="btn btn-grey" href="{% url 'migrator:index' %}">
+      <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+      All migrations
+    </a>
+    <a class="btn btn-primary" href="{% url 'migrator:download_report_pdf' migration.id %}">
+      <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      Download PDF
+    </a>
+    {% comment %} <a class="btn btn-grey" href="{% url 'migrator:dashboard' migration.id %}">
+      <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+      Open dashboard
+    </a> {% endcomment %}
+  </div>
+</div>
+
+<div class="card meta-card">
+  <div>
+    <div class="label">Label</div>
+    <div class="value"><b>{{ migration.name|default:"—" }}</b> &middot; <span class="muted">#{{ migration.id }}</span></div>
+  </div>
+  <div>
+    <div class="label">Created</div>
+    <div class="value">{{ migration.created_at|date:"Y-m-d H:i" }}</div>
+  </div>
+  <div>
+    <div class="label">Source</div>
+    <div class="value">{{ migration.old_username }}<br><span class="host">{{ migration.old_host }}:{{ migration.old_port }}</span></div>
+  </div>
+  <div>
+    <div class="label">Destination</div>
+    <div class="value">{{ migration.new_username }}<br><span class="host">{{ migration.new_host }}:{{ migration.new_port }}</span></div>
+  </div>
+  {% if is_admin_view %}
+  <div>
+    <div class="label">Owner</div>
+    <div class="value">
+      {% if migration.owner %}
+        <b>{{ migration.owner.get_username }}</b>{% if migration.owner.email %}<br><span class="host">{{ migration.owner.email }}</span>{% endif %}
+      {% else %}
+        <span class="muted">—</span>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+<div class="stats" style="margin-top:18px;">
+  <div class="stat">
+    <div class="label">Backed up</div>
+    <div class="value green">{{ totals.backed_up }}</div>
+  </div>
+  <div class="stat">
+    <div class="label">Transferred</div>
+    <div class="value {% if totals.transferred %}green{% else %}muted{% endif %}">{{ totals.transferred }}</div>
+  </div>
+  <div class="stat">
+    <div class="label">Missing</div>
+    <div class="value {% if totals.missing %}red{% else %}muted{% endif %}">{{ totals.missing }}</div>
+  </div>
+  <div class="stat">
+    <div class="label">Deleted from source</div>
+    <div class="value {% if totals.deleted %}red{% else %}muted{% endif %}">{{ totals.deleted }}</div>
+  </div>
+</div>
+
+<div class="card" style="padding: 0;">
+  <div style="padding: 14px 22px; border-bottom: 1px solid var(--card-border); font-weight: 600;">Phase timeline</div>
+
+  {% with s=phases.backup %}
+  <div class="phase-row" data-state="{{ s.status }}">
+    <div class="num">1</div>
+    <div><div class="title">Backup</div><div class="when">
+      {% if s.started %}{{ s.started|date:"Y-m-d H:i" }} → {% if s.finished %}{{ s.finished|date:"H:i:s" }} · {{ s.duration }}{% else %}running…{% endif %}{% else %}not started{% endif %}
+    </div>{% if s.error %}<div class="error-line">{{ s.error|truncatechars:160 }}</div>{% endif %}</div>
+    <div class="count">{% if s.total %}{{ s.processed }} / {{ s.total }}{% else %}—{% endif %}</div>
+    <div class="muted" style="font-size:13px;">messages downloaded</div>
+    <div><span class="pill {% if s.status == 'success' %}green{% elif s.status == 'failed' %}red{% else %}grey{% endif %}">{{ s.status|capfirst }}</span></div>
+  </div>
+  {% endwith %}
+
+  {% with s=phases.transfer %}
+  <div class="phase-row" data-state="{{ s.status }}">
+    <div class="num">2</div>
+    <div><div class="title">Transfer</div><div class="when">
+      {% if s.started %}{{ s.started|date:"Y-m-d H:i" }} → {% if s.finished %}{{ s.finished|date:"H:i:s" }} · {{ s.duration }}{% else %}running…{% endif %}{% else %}not started{% endif %}
+    </div>{% if s.error %}<div class="error-line">{{ s.error|truncatechars:160 }}</div>{% endif %}</div>
+    <div class="count">{% if s.total %}{{ s.processed }} / {{ s.total }}{% else %}—{% endif %}</div>
+    <div class="muted" style="font-size:13px;">messages uploaded</div>
+    <div><span class="pill {% if s.status == 'success' %}green{% elif s.status == 'failed' %}red{% else %}grey{% endif %}">{{ s.status|capfirst }}</span></div>
+  </div>
+  {% endwith %}
+
+  {% with s=phases.verify %}
+  <div class="phase-row" data-state="{{ s.status }}">
+    <div class="num">3</div>
+    <div><div class="title">Verify</div><div class="when">
+      {% if s.started %}{{ s.started|date:"Y-m-d H:i" }} → {% if s.finished %}{{ s.finished|date:"H:i:s" }} · {{ s.duration }}{% else %}running…{% endif %}{% else %}not started{% endif %}
+    </div>{% if s.error %}<div class="error-line">{{ s.error|truncatechars:160 }}</div>{% endif %}</div>
+    <div class="count">{% if verify_report %}{{ totals.missing }} missing{% else %}—{% endif %}</div>
+    <div class="muted" style="font-size:13px;">{% if verify_report %}of {{ verify_report.total_old }} on source{% else %}no report yet{% endif %}</div>
+    <div><span class="pill {% if s.status == 'success' %}green{% elif s.status == 'failed' %}red{% else %}grey{% endif %}">{{ s.status|capfirst }}</span></div>
+  </div>
+  {% endwith %}
+
+  {% with s=phases.cleanup %}
+  <div class="phase-row" data-state="{{ s.status }}">
+    <div class="num">4</div>
+    <div><div class="title">Cleanup</div><div class="when">
+      {% if s.started %}{{ s.started|date:"Y-m-d H:i" }} → {% if s.finished %}{{ s.finished|date:"H:i:s" }} · {{ s.duration }}{% else %}running…{% endif %}{% else %}not started{% endif %}
+    </div>{% if s.error %}<div class="error-line">{{ s.error|truncatechars:160 }}</div>{% endif %}</div>
+    <div class="count">{% if s.status == 'success' %}{{ s.processed }}{% else %}—{% endif %}</div>
+    <div class="muted" style="font-size:13px;">deleted from source</div>
+    <div><span class="pill {% if s.status == 'success' %}green{% elif s.status == 'failed' %}red{% else %}grey{% endif %}">{{ s.status|capfirst|default:"Pending" }}</span></div>
+  </div>
+  {% endwith %}
+</div>
+
+<div class="card" style="padding: 0; overflow: hidden; margin-top: 18px;">
+  <div style="padding: 14px 22px; border-bottom: 1px solid var(--card-border); display:flex; align-items:center; justify-content:space-between;">
+    <div style="font-weight: 600;">Per-folder breakdown</div>
+    <div class="muted" style="font-size:12.5px;">{{ folder_rows|length }} folder(s)</div>
+  </div>
+  {% if folder_rows %}
+    <table>
+      <thead>
+        <tr>
+          <th>Source folder</th>
+          <th>Destination</th>
+          <th style="text-align:right; width:110px;">Backed up</th>
+          <th style="text-align:right; width:110px;">Transferred</th>
+          <th style="text-align:right; width:90px;">Missing</th>
+          <th style="width: 130px;">Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in folder_rows %}
+          <tr>
+            <td><b>{{ r.src }}</b></td>
+            <td class="muted">{{ r.dst }}</td>
+            <td style="text-align:right; font-variant-numeric: tabular-nums;">{{ r.backed_up }}</td>
+            <td style="text-align:right; font-variant-numeric: tabular-nums; {% if r.transferred < r.backed_up %}color: var(--muted);{% endif %}">{{ r.transferred }}</td>
+            <td style="text-align:right; font-variant-numeric: tabular-nums; {% if r.missing %}color: var(--red); font-weight: 600;{% else %}color: var(--muted);{% endif %}">{% if r.verified %}{{ r.missing }}{% else %}—{% endif %}</td>
+            <td>
+              {% if r.ok %}
+                <span class="pill green">
+                  <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                  Verified
+                </span>
+              {% elif r.missing %}
+                <span class="pill red">{{ r.missing }} missing</span>
+              {% elif r.transferred %}
+                <span class="pill grey">Transferred</span>
+              {% elif r.backed_up %}
+                <span class="pill grey">Backed up</span>
+              {% else %}
+                <span class="pill grey">Pending</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <div style="padding: 24px;">
+      <div class="muted">No active folder mappings yet — configure them on the
+        <a href="{% url 'migrator:config_edit' migration.id %}">configuration screen</a>.</div>
+    </div>
+  {% endif %}
+</div>
+
+{% endblock %}
