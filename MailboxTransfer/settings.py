@@ -131,6 +131,10 @@ LOGIN_REDIRECT_URL = 'migrator:after_login'
 LOGOUT_REDIRECT_URL = 'migrator:login'
 TWO_FACTOR_PATCH_ADMIN = True
 
+# Issuer shown in the user's authenticator app (Google Authenticator, 1Password, etc.).
+# Without this, django-two-factor-auth falls back to the Sites framework name (often "localhost").
+OTP_TOTP_ISSUER = 'Mailbox Transfer'
+
 # allauth — Google OAuth + local email/password signup with mandatory email verification.
 # Local signups are created with is_active=False and require admin approval (see adapters.py).
 ACCOUNT_EMAIL_VERIFICATION = 'mandatory'
