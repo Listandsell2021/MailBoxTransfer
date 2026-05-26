@@ -43,6 +43,8 @@ desktop.ini
 # --- Docker ---
 # Compose override for local-only tweaks (keep base compose committed)
 docker-compose.override.yml
+# Certbot runtime state (created on the server by the certbot container)
+docker/certbot/
 
 # --- Misc ---
 *.pem

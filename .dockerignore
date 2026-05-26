@@ -20,3 +20,6 @@ media/
 Thumbs.db
 DEPLOY.md
 _mockups/
+
+# Certbot runtime state (owned by root inside container — would break build context perms)
+docker/certbot/
