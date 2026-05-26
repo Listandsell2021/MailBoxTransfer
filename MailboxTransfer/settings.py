@@ -177,6 +177,24 @@ _admin_email = os.environ.get('ADMIN_EMAIL', '').strip()
 ADMINS = [('Admin', _admin_email)] if _admin_email else []
 MANAGERS = ADMINS
 
+# Silence DisallowedHost mails — internet scanners constantly probe public IPs
+# with bogus Host headers; we don't need an email for every one.
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {
+        'console': {'class': 'logging.StreamHandler'},
+    },
+    'root': {'handlers': ['console'], 'level': 'INFO'},
+    'loggers': {
+        'django.security.DisallowedHost': {
+            'handlers': ['console'],
+            'level': 'CRITICAL',  # effectively suppress: nothing logs at this level here
+            'propagate': False,
+        },
+    },
+}
+
 
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
