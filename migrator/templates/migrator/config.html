@@ -1,6 +1,20 @@
 {% extends "migrator/base.html" %}
 {% block title %}IMAP Configuration · Mailbox Transfer{% endblock %}
 {% block content %}
+<style>
+  .pw-wrap { position: relative; }
+  .pw-wrap input { padding-right: 40px !important; }
+  .pw-toggle {
+    position: absolute; top: 50%; right: 6px; transform: translateY(-50%);
+    background: transparent; border: 0; padding: 6px; cursor: pointer;
+    color: var(--muted); display: inline-flex; align-items: center;
+    border-radius: 4px;
+  }
+  .pw-toggle:hover { color: var(--text, #111); background: rgba(0,0,0,0.04); }
+  .pw-toggle svg { width: 18px; height: 18px; display: block; }
+  .pw-toggle svg[hidden] { display: none; }
+  .btn[disabled], .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+</style>
 
 <div class="page-head">
   <div>
@@ -40,7 +54,16 @@
           <div class="field {% if form.old_security.errors %}has-error{% endif %}"><label>Connection security</label>{{ form.old_security }}{% if form.old_security.errors %}<div class="field-error">{{ form.old_security.errors|join:" · " }}</div>{% endif %}</div>
         </div>
         <div class="field {% if form.old_username.errors %}has-error{% endif %}"><label>Username</label>{{ form.old_username }}{% if form.old_username.errors %}<div class="field-error">{{ form.old_username.errors|join:" · " }}</div>{% endif %}</div>
-        <div class="field {% if form.old_password.errors %}has-error{% endif %}"><label>Password <span style="color: var(--muted); font-weight: 400;">· in-memory only</span></label>{{ form.old_password }}{% if form.old_password.errors %}<div class="field-error">{{ form.old_password.errors|join:" · " }}</div>{% endif %}</div>
+        <div class="field {% if form.old_password.errors %}has-error{% endif %}"><label>Password <span style="color: var(--muted); font-weight: 400;">· in-memory only</span></label>
+          <div class="pw-wrap">
+            {{ form.old_password }}
+            <button type="button" class="pw-toggle" data-target="id_old_password" aria-label="Show password" tabindex="-1">
+              <svg class="pw-eye"     viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              <svg class="pw-eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" hidden><path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a19.45 19.45 0 0 1 5.17-5.93"/><path d="M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 8 11 8a19.46 19.46 0 0 1-3.17 4.19"/><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+            </button>
+          </div>
+          {% if form.old_password.errors %}<div class="field-error">{{ form.old_password.errors|join:" · " }}</div>{% endif %}
+        </div>
       </div>
 
       <div class="mailbox new">
@@ -51,7 +74,16 @@
           <div class="field {% if form.new_security.errors %}has-error{% endif %}"><label>Connection security</label>{{ form.new_security }}{% if form.new_security.errors %}<div class="field-error">{{ form.new_security.errors|join:" · " }}</div>{% endif %}</div>
         </div>
         <div class="field {% if form.new_username.errors %}has-error{% endif %}"><label>Username</label>{{ form.new_username }}{% if form.new_username.errors %}<div class="field-error">{{ form.new_username.errors|join:" · " }}</div>{% endif %}</div>
-        <div class="field {% if form.new_password.errors %}has-error{% endif %}"><label>Password <span style="color: var(--muted); font-weight: 400;">· in-memory only</span></label>{{ form.new_password }}{% if form.new_password.errors %}<div class="field-error">{{ form.new_password.errors|join:" · " }}</div>{% endif %}</div>
+        <div class="field {% if form.new_password.errors %}has-error{% endif %}"><label>Password <span style="color: var(--muted); font-weight: 400;">· in-memory only</span></label>
+          <div class="pw-wrap">
+            {{ form.new_password }}
+            <button type="button" class="pw-toggle" data-target="id_new_password" aria-label="Show password" tabindex="-1">
+              <svg class="pw-eye"     viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              <svg class="pw-eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" hidden><path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a19.45 19.45 0 0 1 5.17-5.93"/><path d="M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 8 11 8a19.46 19.46 0 0 1-3.17 4.19"/><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+            </button>
+          </div>
+          {% if form.new_password.errors %}<div class="field-error">{{ form.new_password.errors|join:" · " }}</div>{% endif %}
+        </div>
       </div>
     </div>
 
@@ -132,7 +164,7 @@
           Test connection
         </button>
       {% endif %}
-      <button type="submit" class="btn btn-primary">
+      <button type="submit" class="btn btn-primary" id="btn-save">
         <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
         Save
       </button>
@@ -143,12 +175,39 @@
 {% endblock %}
 
 {% block scripts %}
+<script>
+// Password show/hide — runs on every config page (new and edit).
+document.querySelectorAll('.pw-toggle').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const inp = document.getElementById(btn.dataset.target);
+    if (!inp) return;
+    const showing = inp.type === 'text';
+    inp.type = showing ? 'password' : 'text';
+    btn.querySelector('.pw-eye').toggleAttribute('hidden', !showing);
+    btn.querySelector('.pw-eye-off').toggleAttribute('hidden', showing);
+    btn.setAttribute('aria-label', showing ? 'Show password' : 'Hide password');
+  });
+});
+</script>
 {% if migration %}
 <script>
 const MIG_ID = {{ migration.id }};
 const csrf = document.querySelector('[name=csrfmiddlewaretoken]').value;
 
 document.querySelectorAll('a[data-disabled="1"]').forEach(a => a.classList.add('is-disabled'));
+
+// Save/Test state machine: on this screen (migration already exists), the user
+// must click Test connection first so we know the saved credentials actually
+// work before they save mapping changes. Editing any form field is treated as
+// a separate intent and also re-enables Save.
+const btnSave = document.getElementById('btn-save');
+const btnTest = document.getElementById('btn-test');
+btnSave.disabled = true;
+btnSave.title = 'Click Test connection first to verify the saved credentials.';
+document.querySelectorAll('#cfg-form input, #cfg-form select').forEach(el => {
+  el.addEventListener('input', () => { btnSave.disabled = false; btnSave.title = ''; });
+  el.addEventListener('change', () => { btnSave.disabled = false; btnSave.title = ''; });
+});
 
 function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -185,9 +244,11 @@ function setRowsFromPayload(rows, newFolderNames) {
   }
 }
 
-document.getElementById('btn-test').addEventListener('click', async () => {
+btnTest.addEventListener('click', async () => {
   const status = document.getElementById('test-status');
   status.innerHTML = '<span style="color:var(--muted);">Connecting…</span>';
+  btnTest.disabled = true;
+  btnSave.disabled = true;
   try {
     const resp = await fetch(`/config/${MIG_ID}/test/`, {
       method: 'POST', headers: {'X-CSRFToken': csrf},
@@ -199,8 +260,12 @@ document.getElementById('btn-test').addEventListener('click', async () => {
     }
     status.innerHTML = `<span style="color:var(--green); font-weight:600;">✓ ${data.old_folder_count} folders on source · ${data.new_folder_count} on destination</span>`;
     setRowsFromPayload(data.rows, data.new_folder_names);
+    btnSave.disabled = false;
+    btnSave.title = '';
   } catch (e) {
     status.innerHTML = `<span style="color:var(--red); font-weight:600;">✗ ${escapeHtml(e.message)}</span>`;
+  } finally {
+    btnTest.disabled = false;
   }
 });
 
