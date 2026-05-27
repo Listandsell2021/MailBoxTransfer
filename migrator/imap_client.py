@@ -9,6 +9,7 @@ from __future__ import annotations
 import imaplib
 import re
 import ssl
+import time
 from dataclasses import dataclass, field
 from typing import Iterator
 
@@ -129,14 +130,35 @@ class ImapClient:
         self.close()
 
     def connect(self) -> None:
-        if self.use_ssl:
-            ctx = ssl.create_default_context()
-            self._conn = imaplib.IMAP4_SSL(self.host, self.port, ssl_context=ctx)
-        else:
-            self._conn = imaplib.IMAP4(self.host, self.port)
-        typ, data = self._conn.login(self.username, self.password)
-        if typ != "OK":
-            raise ImapError(f"LOGIN failed: {data!r}")
+        # Shared mail hosts (Kasserver, IONOS, Strato, …) commonly return
+        # [AUTHENTICATIONFAILED] when a recent session for the same account
+        # hasn't been reaped yet, even though credentials are correct.
+        # Retry a couple of times with backoff before giving up.
+        backoffs = [0, 3, 7]
+        last_err: Exception | None = None
+        for delay in backoffs:
+            if delay:
+                time.sleep(delay)
+            try:
+                if self.use_ssl:
+                    ctx = ssl.create_default_context()
+                    self._conn = imaplib.IMAP4_SSL(self.host, self.port, ssl_context=ctx)
+                else:
+                    self._conn = imaplib.IMAP4(self.host, self.port)
+                typ, data = self._conn.login(self.username, self.password)
+                if typ == "OK":
+                    return
+                last_err = ImapError(f"LOGIN failed: {data!r}")
+            except (imaplib.IMAP4.error, OSError) as exc:
+                last_err = exc
+            # Clean up the half-open socket before retrying.
+            if self._conn is not None:
+                try:
+                    self._conn.shutdown()
+                except Exception:
+                    pass
+                self._conn = None
+        raise last_err if last_err else ImapError("LOGIN failed: unknown error")
 
     def close(self) -> None:
         if not self._conn:
