@@ -30,9 +30,9 @@ EXPOSE 8000
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["gunicorn", "MailboxTransfer.wsgi:application", \
      "--bind", "0.0.0.0:8000", \
-     "--workers", "3", \
+     "--workers", "1", \
      "--worker-class", "gthread", \
-     "--threads", "8", \
+     "--threads", "16", \
      "--timeout", "120", \
      "--access-logfile", "-", \
      "--error-logfile", "-"]
