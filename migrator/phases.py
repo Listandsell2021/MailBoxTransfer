@@ -7,10 +7,13 @@ in their own thread by views.py.
 
 from __future__ import annotations
 
+import logging
 import threading
 import traceback
 from datetime import timedelta
 
+from django.conf import settings
+from django.core.mail import send_mail
 from django.utils import timezone
 
 from .imap_client import (
@@ -23,9 +26,13 @@ from .models import (
     Migration,
     MessageRecord,
     PhaseRun,
+    UserProfile,
     VerificationReport,
 )
 from .runtime import STATE, Credentials, load_credentials
+
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -49,6 +56,66 @@ def _finish_phase(run: PhaseRun, ok: bool, error: str = "") -> None:
     if error:
         run.error = error
     run.save()
+    _notify_phase_finished(run)
+
+
+PHASE_LABELS = {
+    PhaseRun.PHASE_BACKUP: "Backup",
+    PhaseRun.PHASE_TRANSFER: "Transfer",
+    PhaseRun.PHASE_VERIFY: "Verify",
+    PhaseRun.PHASE_CLEANUP: "Cleanup",
+}
+
+
+def _notify_phase_finished(run: PhaseRun) -> None:
+    """Email the migration owner that a phase finished. Best-effort: SMTP
+    failures are logged but never propagate (the migration itself succeeded)."""
+    owner = run.migration.owner
+    if owner is None:
+        return
+    profile = UserProfile.objects.filter(user=owner).first()
+    if not profile or not profile.notifications_enabled:
+        return
+    target = profile.resolved_email()
+    if not target:
+        return
+
+    phase_label = PHASE_LABELS.get(run.phase, run.phase.title())
+    mig_label = run.migration.name or f"#{run.migration_id}"
+    ok = run.status == PhaseRun.STATUS_SUCCESS
+    status_word = "completed" if ok else "failed"
+    subject = f"[Mailbox Transfer] {phase_label} {status_word} — {mig_label}"
+
+    lines = [
+        f"Migration: {mig_label}",
+        f"Source: {run.migration.old_username} @ {run.migration.old_host}",
+        f"Destination: {run.migration.new_username} @ {run.migration.new_host}",
+        f"Phase: {phase_label}",
+        f"Status: {run.status}",
+    ]
+    if run.total:
+        lines.append(f"Processed: {run.processed} / {run.total}")
+    if run.started_at:
+        lines.append(f"Started: {run.started_at.isoformat(timespec='seconds')}")
+    if run.finished_at:
+        lines.append(f"Finished: {run.finished_at.isoformat(timespec='seconds')}")
+    if not ok and run.error:
+        lines.append("")
+        lines.append("Error:")
+        lines.append(run.error.strip()[:2000])
+
+    body = "\n".join(lines) + "\n"
+
+    try:
+        send_mail(
+            subject=subject,
+            message=body,
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=[target],
+            fail_silently=False,
+        )
+    except Exception:
+        logger.exception("Notification email failed (run=%s, to=%s)", run.pk, target)
 
 
 def _log(hub, level: str, message: str, **extra) -> None:

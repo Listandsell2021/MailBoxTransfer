@@ -12,6 +12,7 @@ urlpatterns = [
     path("login/verify/", views.verify_otp, name="verify_otp"),
 
     path("", views.home, name="home"),
+    path("profile/", views.profile, name="profile"),
     path("migrations/", views.index, name="index"),
     path("users/", views.users_list, name="users"),
     path("users/<int:user_id>/toggle-active/", views.toggle_user_active, name="toggle_user_active"),

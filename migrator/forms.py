@@ -2,7 +2,7 @@ from django import forms
 
 from allauth.account.forms import SignupForm
 
-from .models import Migration
+from .models import Migration, UserProfile
 
 
 class MailboxSignupForm(SignupForm):
@@ -61,3 +61,18 @@ class MigrationForm(forms.ModelForm):
         if commit:
             obj.save()
         return obj
+
+
+class ProfileForm(forms.ModelForm):
+    notify_email = forms.EmailField(
+        required=False,
+        widget=forms.EmailInput(attrs={"placeholder": "(leave blank to use account email)"}),
+        help_text="Leave blank to send notifications to your account email.",
+    )
+
+    class Meta:
+        model = UserProfile
+        fields = ["notifications_enabled", "notify_email"]
+        labels = {
+            "notifications_enabled": "Send me email notifications when a migration phase finishes",
+        }

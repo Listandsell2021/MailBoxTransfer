@@ -23,9 +23,12 @@ from django.db.models import Count, Q
 from django_otp import devices_for_user, login as otp_login, user_has_device
 from django_otp.decorators import otp_required
 
-from .forms import MigrationForm
+from django.contrib.auth import update_session_auth_hash
+from django.contrib.auth.forms import PasswordChangeForm
+
+from .forms import MigrationForm, ProfileForm
 from .imap_client import ImapClient, auto_pair_folders
-from .models import FolderMapping, Migration, MessageRecord, PhaseRun, VerificationReport
+from .models import FolderMapping, Migration, MessageRecord, PhaseRun, UserProfile, VerificationReport
 from .phases import CleanupGate, launch_phase
 from .runtime import STATE, Credentials, load_credentials
 from .crypto import encrypt
@@ -158,6 +161,43 @@ def _owned_migrations(user):
     if not (user and user.is_authenticated):
         return Migration.objects.none()
     return Migration.objects.filter(owner=user)
+
+
+# ---------------------------------------------------------------------------
+# Profile / notification preferences
+# ---------------------------------------------------------------------------
+
+@otp_required(login_url="migrator:login")
+def profile(request: HttpRequest) -> HttpResponse:
+    profile_obj, _ = UserProfile.objects.get_or_create(user=request.user)
+
+    password_form = PasswordChangeForm(request.user)
+    notif_form = ProfileForm(instance=profile_obj)
+
+    if request.method == "POST":
+        which = request.POST.get("form_name", "")
+        if which == "password":
+            password_form = PasswordChangeForm(request.user, request.POST)
+            if password_form.is_valid():
+                user = password_form.save()
+                update_session_auth_hash(request, user)
+                messages.success(request, "Password changed.")
+                return redirect("migrator:profile")
+        elif which == "notifications":
+            notif_form = ProfileForm(request.POST, instance=profile_obj)
+            if notif_form.is_valid():
+                notif_form.save()
+                messages.success(request, "Notification settings saved.")
+                return redirect("migrator:profile")
+
+    return render(request, "migrator/profile.html", {
+        "password_form": password_form,
+        "form": notif_form,
+        "account_email": request.user.email,
+        "account_username": request.user.get_username(),
+        "date_joined": request.user.date_joined,
+        "nav_active": "profile",
+    })
 
 
 # ---------------------------------------------------------------------------

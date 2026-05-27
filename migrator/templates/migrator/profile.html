@@ -1,0 +1,208 @@
+{% extends "migrator/base.html" %}
+{% block title %}Profile · Mailbox Transfer{% endblock %}
+{% block content %}
+<style>
+  .profile-stack {
+    display: grid; gap: 18px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: stretch;
+  }
+  .profile-stack > .card-full { grid-column: 1 / -1; }
+  /* Visual order: Account, Notifications (row 1), Password (row 2 full-width).
+     Kept in a different source order to minimise template churn. */
+  .profile-stack > .card-account       { order: 1; }
+  .profile-stack > .card-notifications { order: 2; }
+  .profile-stack > .card-password      { order: 3; }
+  /* Equal-height cards: each card becomes a flex column, and the action
+     row (`.right`) gets pushed to the bottom so the Save buttons align. */
+  .profile-stack > .card { display: flex; flex-direction: column; }
+  .profile-stack > .card > form { display: flex; flex-direction: column; flex: 1 1 auto; }
+  .profile-stack > .card > form > .right { margin-top: auto !important; }
+  /* Compact the Django default password-rules bullet list. */
+  .profile-stack .account-line ul { margin: 4px 0 0; padding-left: 18px; }
+  .profile-stack .account-line li { margin: 0; line-height: 1.45; }
+  @media (max-width: 880px) {
+    .profile-stack { grid-template-columns: 1fr; }
+  }
+  .ro-grid { display: grid; grid-template-columns: 140px 1fr; gap: 6px 16px; font-size: 14px; }
+  .ro-grid dt { color: var(--muted); font-weight: 500; }
+  .ro-grid dd { margin: 0; color: var(--text, #111); }
+  .ro-grid dd code { background: rgba(0,0,0,0.04); padding: 1px 6px; border-radius: 4px; }
+  .toggle-row {
+    display: flex; align-items: flex-start; gap: 12px;
+    padding: 14px 16px; border: 1px solid var(--card-border);
+    border-radius: var(--r); background: #fafafa;
+  }
+  .toggle-row input[type=checkbox] { margin-top: 2px; width: 18px; height: 18px; cursor: pointer; }
+  .toggle-row label { margin: 0; cursor: pointer; font-weight: 500; }
+  .toggle-row .hint { color: var(--muted); font-size: 13px; font-weight: 400; margin-top: 2px; }
+  .account-line { color: var(--muted); font-size: 13px; margin-top: 6px; }
+  .section-head { font-size: 16px; margin: 0 0 4px; }
+  .section-sub  { color: var(--muted); font-size: 13px; margin: 0 0 16px; }
+  .pw-wrap { position: relative; }
+  .pw-wrap input { padding-right: 40px !important; }
+  .pw-toggle {
+    position: absolute; top: 50%; right: 6px; transform: translateY(-50%);
+    background: transparent; border: 0; padding: 6px; cursor: pointer;
+    color: var(--muted); display: inline-flex; align-items: center;
+    border-radius: 4px;
+  }
+  .pw-toggle:hover { color: var(--text, #111); background: rgba(0,0,0,0.04); }
+  .pw-toggle svg { width: 18px; height: 18px; display: block; }
+  .pw-toggle svg[hidden] { display: none; }
+  .btn[disabled], .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+</style>
+
+<div class="page-head">
+  <div>
+    <h1>Profile</h1>
+    <p class="page-sub">Manage your account info, password, and notification preferences.</p>
+  </div>
+</div>
+
+<div class="profile-stack">
+
+  {# ---------- Account info ---------- #}
+  <div class="card card-account">
+    <h2 class="section-head">Account</h2>
+    <p class="section-sub">Username and email are tied to your login and can't be changed here.</p>
+
+    <dl class="ro-grid">
+      <dt>Username</dt><dd><code>{{ account_username }}</code></dd>
+      <dt>Email</dt><dd><code>{{ account_email|default:"—" }}</code></dd>
+      <dt>Member since</dt><dd>{{ date_joined|date:"j M Y" }}</dd>
+    </dl>
+  </div>
+
+  {# ---------- Password ---------- #}
+  <div class="card card-full card-password">
+    <h2 class="section-head">Password</h2>
+    <p class="section-sub">Change your sign-in password. You'll stay logged in afterwards.</p>
+
+    <form method="post" novalidate>
+      {% csrf_token %}
+      <input type="hidden" name="form_name" value="password">
+
+      {% if password_form.non_field_errors %}
+        <div class="alert error">
+          <svg class="icon-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          <div>{{ password_form.non_field_errors|join:" · " }}</div>
+        </div>
+      {% endif %}
+
+      <div class="field {% if password_form.old_password.errors %}has-error{% endif %}" style="max-width: 480px;">
+        <label for="{{ password_form.old_password.id_for_label }}">Current password</label>
+        <div class="pw-wrap">
+          {{ password_form.old_password }}
+          <button type="button" class="pw-toggle" data-target="{{ password_form.old_password.id_for_label }}" aria-label="Show password" tabindex="-1">
+            <svg class="pw-eye"     viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+            <svg class="pw-eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" hidden><path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a19.45 19.45 0 0 1 5.17-5.93"/><path d="M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 8 11 8a19.46 19.46 0 0 1-3.17 4.19"/><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+          </button>
+        </div>
+        {% if password_form.old_password.errors %}<div class="field-error">{{ password_form.old_password.errors|join:" · " }}</div>{% endif %}
+      </div>
+
+      <div class="grid two">
+        <div class="field {% if password_form.new_password1.errors %}has-error{% endif %}">
+          <label for="{{ password_form.new_password1.id_for_label }}">New password</label>
+          <div class="pw-wrap">
+            {{ password_form.new_password1 }}
+            <button type="button" class="pw-toggle" data-target="{{ password_form.new_password1.id_for_label }}" aria-label="Show password" tabindex="-1">
+              <svg class="pw-eye"     viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              <svg class="pw-eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" hidden><path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a19.45 19.45 0 0 1 5.17-5.93"/><path d="M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 8 11 8a19.46 19.46 0 0 1-3.17 4.19"/><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+            </button>
+          </div>
+          {% if password_form.new_password1.help_text %}<div class="account-line">{{ password_form.new_password1.help_text|safe }}</div>{% endif %}
+          {% if password_form.new_password1.errors %}<div class="field-error">{{ password_form.new_password1.errors|join:" · " }}</div>{% endif %}
+        </div>
+        <div class="field {% if password_form.new_password2.errors %}has-error{% endif %}">
+          <label for="{{ password_form.new_password2.id_for_label }}">Confirm new password</label>
+          <div class="pw-wrap">
+            {{ password_form.new_password2 }}
+            <button type="button" class="pw-toggle" data-target="{{ password_form.new_password2.id_for_label }}" aria-label="Show password" tabindex="-1">
+              <svg class="pw-eye"     viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              <svg class="pw-eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" hidden><path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a19.45 19.45 0 0 1 5.17-5.93"/><path d="M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 8 11 8a19.46 19.46 0 0 1-3.17 4.19"/><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+            </button>
+          </div>
+          {% if password_form.new_password2.errors %}<div class="field-error">{{ password_form.new_password2.errors|join:" · " }}</div>{% endif %}
+        </div>
+      </div>
+
+      <div class="right" style="margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--card-border); display: flex; justify-content: flex-end;">
+        <button type="submit" class="btn btn-primary">Change password</button>
+      </div>
+    </form>
+  </div>
+
+  {# ---------- Notifications ---------- #}
+  <div class="card card-notifications">
+    <h2 class="section-head">Notifications</h2>
+    <p class="section-sub">Get an email when a migration phase finishes (Backup, Transfer, Verify, Cleanup).</p>
+
+    <form method="post" novalidate>
+      {% csrf_token %}
+      <input type="hidden" name="form_name" value="notifications">
+
+      {% if form.non_field_errors %}
+        <div class="alert error">
+          <svg class="icon-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          <div>{{ form.non_field_errors|join:" · " }}</div>
+        </div>
+      {% endif %}
+
+      <div style="margin-bottom: 16px;">
+        <div class="toggle-row">
+          {{ form.notifications_enabled }}
+          <div>
+            <label for="{{ form.notifications_enabled.id_for_label }}">Email me when a migration phase finishes</label>
+            <div class="hint">One email per phase — successes and failures both.</div>
+          </div>
+        </div>
+        {% if form.notifications_enabled.errors %}<div class="field-error">{{ form.notifications_enabled.errors|join:" · " }}</div>{% endif %}
+      </div>
+
+      <div class="field {% if form.notify_email.errors %}has-error{% endif %}" style="max-width: 480px;">
+        <label for="{{ form.notify_email.id_for_label }}">Send notifications to</label>
+        {{ form.notify_email }}
+        <div class="account-line" style="margin-top: 4px;">Leave blank to use your account email ({{ account_email|default:"not set" }}).</div>
+        {% if form.notify_email.errors %}<div class="field-error">{{ form.notify_email.errors|join:" · " }}</div>{% endif %}
+      </div>
+
+      <div class="right" style="margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--card-border); display: flex; justify-content: flex-end;">
+        <button type="submit" class="btn btn-primary">Save notification settings</button>
+      </div>
+    </form>
+  </div>
+
+</div>
+
+<script>
+// Password show/hide toggles.
+document.querySelectorAll('.pw-toggle').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const inp = document.getElementById(btn.dataset.target);
+    if (!inp) return;
+    const showing = inp.type === 'text';
+    inp.type = showing ? 'password' : 'text';
+    btn.querySelector('.pw-eye').toggleAttribute('hidden', !showing);
+    btn.querySelector('.pw-eye-off').toggleAttribute('hidden', showing);
+    btn.setAttribute('aria-label', showing ? 'Show password' : 'Hide password');
+  });
+});
+
+// Per-form dirty tracking: each Save button starts disabled and only becomes
+// active when the user modifies a field in that section. The forms are
+// identified by their hidden `form_name` input.
+document.querySelectorAll('form input[name="form_name"]').forEach(marker => {
+  const form = marker.closest('form');
+  if (!form) return;
+  const btn = form.querySelector('button[type="submit"]');
+  if (!btn) return;
+  btn.disabled = true;
+  btn.title = 'Change a field to enable saving.';
+  const enable = () => { btn.disabled = false; btn.title = ''; };
+  form.addEventListener('input', enable);
+  form.addEventListener('change', enable);
+});
+</script>
+{% endblock %}

@@ -132,6 +132,25 @@ class MessageRecord(models.Model):
         ]
 
 
+class UserProfile(models.Model):
+    """Per-user preferences. Auto-created on first access via get_or_create."""
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="profile",
+    )
+    notifications_enabled = models.BooleanField(default=False)
+    # Empty means "use the account's primary email address".
+    notify_email = models.EmailField(blank=True)
+
+    def __str__(self) -> str:
+        return f"Profile<{self.user_id}>"
+
+    def resolved_email(self) -> str:
+        return (self.notify_email or self.user.email or "").strip()
+
+
 class VerificationReport(models.Model):
     """Result of a Verify phase run; consulted by Cleanup safety checks."""
 

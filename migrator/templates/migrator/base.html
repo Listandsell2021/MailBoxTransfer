@@ -159,6 +159,15 @@
   }
   aside.sidebar .signout-form button:hover { background: var(--subtle); color: var(--red); }
   aside.sidebar .signout-form button:hover svg { color: var(--red); }
+  aside.sidebar .signout-form .signout-link {
+    display: flex; align-items: center; gap: 10px; width: 100%;
+    color: var(--muted); background: transparent; border: 0;
+    padding: 9px 10px; border-radius: var(--r-sm);
+    font: inherit; font-weight: 500; font-size: 13.5px;
+    text-align: left; text-decoration: none; transition: all .12s;
+    box-sizing: border-box;
+  }
+  aside.sidebar .signout-form .signout-link:hover { background: var(--subtle); color: var(--text, #111); }
   aside.sidebar .signout-form .icon-sm { width: 16px; height: 16px; }
   aside.sidebar .user-card .avatar {
     width: 30px; height: 30px; border-radius: 50%;
@@ -595,6 +604,10 @@
   <div class="user-area">
     <form method="post" action="{% url 'account_logout' %}" class="signout-form" id="signoutForm">
       {% csrf_token %}
+      <a href="{% url 'migrator:profile' %}" class="signout-link" title="Profile settings">
+        <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+        Profile
+      </a>
       <button type="submit" title="Sign out{% if user.email %} ({{ user.email }}){% endif %}">
         <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
         Sign out
