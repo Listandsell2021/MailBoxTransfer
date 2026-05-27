@@ -233,7 +233,31 @@ es.addEventListener('phase', e => {
   if (data.status === 'running') cleanupWasRunning = true;
   if (cleanupWasRunning && (data.status === 'success' || data.status === 'failed') && !reloadScheduled) {
     reloadScheduled = true;
-    setTimeout(() => location.reload(), 1500);
+    if (data.status === 'success') {
+      Swal.fire({
+        title: 'Migration complete!',
+        html: `
+          <div style="font-size:72px; line-height:1; margin:4px 0 14px;">🎉</div>
+          <div style="font-size:15px; color:#374151; line-height:1.5;">
+            Every message was safely transferred and the old mailbox has been emptied.<br>
+            <span style="color:var(--muted); font-size:13px;">A full backup is still kept in the database — use <b>Download backup</b> any time.</span>
+          </div>`,
+        confirmButtonText: 'Done',
+        customClass: { popup: 'mt-swal' },
+        buttonsStyling: false,
+        allowOutsideClick: false,
+        allowEscapeKey: false,
+      }).then(() => location.reload());
+    } else {
+      Swal.fire({
+        title: 'Cleanup failed',
+        text: 'The cleanup phase did not complete. Check the live log below for details.',
+        icon: 'error',
+        confirmButtonText: 'Close',
+        customClass: { popup: 'mt-swal' },
+        buttonsStyling: false,
+      }).then(() => location.reload());
+    }
   }
 });
 </script>
