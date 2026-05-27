@@ -31,6 +31,8 @@ ENTRYPOINT ["/entrypoint.sh"]
 CMD ["gunicorn", "MailboxTransfer.wsgi:application", \
      "--bind", "0.0.0.0:8000", \
      "--workers", "3", \
+     "--worker-class", "gthread", \
+     "--threads", "8", \
      "--timeout", "120", \
      "--access-logfile", "-", \
      "--error-logfile", "-"]
