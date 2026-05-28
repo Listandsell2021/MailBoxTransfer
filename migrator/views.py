@@ -293,7 +293,11 @@ def home(request: HttpRequest) -> HttpResponse:
 
 @otp_required(login_url="migrator:login")
 def index(request: HttpRequest) -> HttpResponse:
-    migrations = _user_migrations(request.user).order_by("-created_at")
+    migrations = (
+        _user_migrations(request.user)
+        .annotate(phase_count=Count("phase_runs"))
+        .order_by("-created_at")
+    )
     return render(request, "migrator/index.html", {
         "migrations": migrations,
         "is_admin_view": _is_admin(request.user),
