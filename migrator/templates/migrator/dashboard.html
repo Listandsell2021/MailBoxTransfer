@@ -332,12 +332,23 @@ function ts() {
   return d.toTimeString().slice(0, 8);
 }
 const logEl = document.getElementById('log');
-function append(level, message) {
+function append(level, message, atTs) {
   const div = document.createElement('div');
   div.className = 'line ' + (level || 'info');
-  div.innerHTML = `<span class="ts">[${ts()}]</span> <span class="tag">${level.toUpperCase()}</span> ${escapeText(message)}`;
+  const stamp = atTs ? new Date(atTs * 1000).toTimeString().slice(0, 8) : ts();
+  div.innerHTML = `<span class="ts">[${stamp}]</span> <span class="tag">${level.toUpperCase()}</span> ${escapeText(message)}`;
   logEl.appendChild(div);
   logEl.scrollTop = logEl.scrollHeight;
+}
+function applyProgress(data) {
+  const card = document.querySelector(`.phase[data-phase="${data.phase}"]`);
+  if (!card) return;
+  const bar = card.querySelector('.progress > span');
+  const pct = data.total ? (100 * data.processed / data.total) : 0;
+  bar.style.width = pct + '%';
+  card.querySelector('.js-pct').textContent = data.total ? Math.round(pct) + '%' : '—';
+  card.querySelector('.js-subtext').textContent =
+    `${data.processed.toLocaleString()} / ${data.total.toLocaleString()} messages` + (data.folder ? ` · ${data.folder}` : '');
 }
 function escapeText(s) { return String(s ?? '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
 document.getElementById('log-clear').addEventListener('click', () => logEl.innerHTML = '');
@@ -355,35 +366,38 @@ function setRunBtn(card, label, disabled, klass) {
   }
 }
 
-// Persist last-seen seq across page reloads so the Hub's history doesn't
-// re-fire old events (which would otherwise loop reloads).
-const SEQ_KEY = `mt:lastSeq:${MIG_ID}`;
-const initialSince = parseInt(localStorage.getItem(SEQ_KEY) || '0', 10);
-const es = new EventSource(`/dashboard/${MIG_ID}/stream/?since=${initialSince}`);
-function rememberSeq(e) {
-  const id = parseInt(e.lastEventId || '0', 10);
-  if (id) localStorage.setItem(SEQ_KEY, String(id));
+// On page (re)load, render the existing log + progress from the server's
+// history buffer, then open SSE from the resulting max_seq so we only get
+// live events. This way the user can close the tab mid-phase, reopen, and
+// see what already happened — without phase-transition handlers firing for
+// historical events.
+let es = null;
+function startStream(sinceSeq) {
+  es = new EventSource(`/dashboard/${MIG_ID}/stream/?since=${sinceSeq}`);
+  es.addEventListener('log', e => {
+    const data = JSON.parse(e.data);
+    append(data.level || 'info', data.message || '');
+  });
+  es.addEventListener('progress', e => applyProgress(JSON.parse(e.data)));
+  es.addEventListener('phase', handlePhaseEvent);
 }
-es.addEventListener('log', e => {
-  rememberSeq(e);
-  const data = JSON.parse(e.data);
-  append(data.level || 'info', data.message || '');
-});
-es.addEventListener('progress', e => {
-  rememberSeq(e);
-  const data = JSON.parse(e.data);
-  const card = document.querySelector(`.phase[data-phase="${data.phase}"]`);
-  if (!card) return;
-  const bar = card.querySelector('.progress > span');
-  const pct = data.total ? (100 * data.processed / data.total) : 0;
-  bar.style.width = pct + '%';
-  card.querySelector('.js-pct').textContent = data.total ? Math.round(pct) + '%' : '—';
-  card.querySelector('.js-subtext').textContent =
-    `${data.processed.toLocaleString()} / ${data.total.toLocaleString()} messages` + (data.folder ? ` · ${data.folder}` : '');
-});
+fetch(`/dashboard/${MIG_ID}/log-snapshot/`, {credentials: 'same-origin'})
+  .then(r => r.json())
+  .then(snap => {
+    for (const ev of (snap.events || [])) {
+      if (ev.type === 'log') {
+        append(ev.level || 'info', ev.message || '', ev.ts);
+      } else if (ev.type === 'progress') {
+        applyProgress(ev);
+      }
+      // phase events from history are intentionally NOT replayed — the
+      // page already reflects current phase states from the Django render.
+    }
+    startStream(snap.max_seq || 0);
+  })
+  .catch(() => startStream(0));
 let reloadScheduled = false;
-es.addEventListener('phase', e => {
-  rememberSeq(e);
+function handlePhaseEvent(e) {
   const data = JSON.parse(e.data);
   const card = document.querySelector(`.phase[data-phase="${data.phase}"]`);
   if (!card) return;
@@ -406,7 +420,7 @@ es.addEventListener('phase', e => {
     reloadScheduled = true;
     setTimeout(() => location.reload(), 1500);
   }
-});
+}
 
 // ----- Run buttons -----
 document.querySelectorAll('.run-btn').forEach(btn => {

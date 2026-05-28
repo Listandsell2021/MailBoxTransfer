@@ -54,6 +54,11 @@ class Hub:
             except ValueError:
                 pass
 
+    def snapshot(self) -> tuple[list[dict], int]:
+        """Return (history events, current max seq) without subscribing."""
+        with self._lock:
+            return list(self._history), self._seq
+
 
 class _State:
     def __init__(self) -> None:

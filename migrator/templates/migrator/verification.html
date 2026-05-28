@@ -257,30 +257,42 @@ document.getElementById('cleanup-form').addEventListener('submit', async (e) => 
 // SSE log
 function ts() { return new Date().toTimeString().slice(0, 8); }
 const logEl = document.getElementById('log');
-function append(level, message) {
+function append(level, message, atTs) {
   const div = document.createElement('div');
   div.className = 'line ' + (level || 'info');
-  div.innerHTML = `<span class="ts">[${ts()}]</span> <span class="tag">${level.toUpperCase()}</span> ${escapeText(message)}`;
+  const stamp = atTs ? new Date(atTs * 1000).toTimeString().slice(0, 8) : ts();
+  div.innerHTML = `<span class="ts">[${stamp}]</span> <span class="tag">${level.toUpperCase()}</span> ${escapeText(message)}`;
   logEl.appendChild(div);
   logEl.scrollTop = logEl.scrollHeight;
 }
 function escapeText(s) { return String(s ?? '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
-const SEQ_KEY = `mt:lastSeq:${MIG_ID}`;
-const initialSince = parseInt(localStorage.getItem(SEQ_KEY) || '0', 10);
-const es = new EventSource(`/dashboard/${MIG_ID}/stream/?since=${initialSince}`);
-function rememberSeq(e) {
-  const id = parseInt(e.lastEventId || '0', 10);
-  if (id) localStorage.setItem(SEQ_KEY, String(id));
-}
-es.addEventListener('log', e => {
-  rememberSeq(e);
-  const data = JSON.parse(e.data);
-  append(data.level || 'info', data.message || '');
-});
+
 let cleanupWasRunning = false;
 let reloadScheduled = false;
-es.addEventListener('phase', e => {
-  rememberSeq(e);
+let es = null;
+function startStream(sinceSeq) {
+  es = new EventSource(`/dashboard/${MIG_ID}/stream/?since=${sinceSeq}`);
+  es.addEventListener('log', e => {
+    const data = JSON.parse(e.data);
+    append(data.level || 'info', data.message || '');
+  });
+  es.addEventListener('phase', handlePhaseEvent);
+}
+fetch(`/dashboard/${MIG_ID}/log-snapshot/`, {credentials: 'same-origin'})
+  .then(r => r.json())
+  .then(snap => {
+    for (const ev of (snap.events || [])) {
+      if (ev.type === 'log') {
+        append(ev.level || 'info', ev.message || '', ev.ts);
+      }
+      // phase events from history are NOT replayed — they would otherwise
+      // re-trigger the cleanup-complete popup every time the page opens.
+    }
+    startStream(snap.max_seq || 0);
+  })
+  .catch(() => startStream(0));
+
+function handlePhaseEvent(e) {
   const data = JSON.parse(e.data);
   if (data.phase !== 'cleanup') return;
   if (data.status === 'running') cleanupWasRunning = true;
@@ -312,6 +324,6 @@ es.addEventListener('phase', e => {
       }).then(() => location.reload());
     }
   }
-});
+}
 </script>
 {% endblock %}

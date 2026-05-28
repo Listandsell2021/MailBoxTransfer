@@ -31,6 +31,7 @@ urlpatterns = [
     path("dashboard/<int:migration_id>/start/<str:phase>/", views.start_phase, name="start_phase"),
     path("dashboard/<int:migration_id>/status/", views.phase_status, name="phase_status"),
     path("dashboard/<int:migration_id>/stream/", views.sse_stream, name="sse_stream"),
+    path("dashboard/<int:migration_id>/log-snapshot/", views.log_snapshot, name="log_snapshot"),
 
     path("verify/<int:migration_id>/", views.verification, name="verification"),
     path("verify/<int:migration_id>/cleanup/", views.start_cleanup, name="start_cleanup"),

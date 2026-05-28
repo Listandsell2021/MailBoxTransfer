@@ -738,6 +738,22 @@ def phase_status(request: HttpRequest, migration_id: int) -> HttpResponse:
 # ---------------------------------------------------------------------------
 
 @otp_required(login_url="migrator:login")
+def log_snapshot(request: HttpRequest, migration_id: int) -> JsonResponse:
+    """Return the current event-history buffer for a migration.
+
+    Why: the SSE stream replays history on connect, but the JS log/phase
+    handlers can't tell historical events from new ones — replaying a finished
+    phase fires the reload/popup logic again. Rendering log lines from this
+    snapshot at page-load and opening SSE from the returned max_seq separates
+    the two cleanly.
+    """
+    migration = get_object_or_404(_owned_migrations(request.user), pk=migration_id)
+    hub = STATE.hub(migration.pk)
+    events, max_seq = hub.snapshot()
+    return JsonResponse({"events": events, "max_seq": max_seq})
+
+
+@otp_required(login_url="migrator:login")
 @csrf_exempt
 def sse_stream(request: HttpRequest, migration_id: int) -> StreamingHttpResponse:
     migration = get_object_or_404(_owned_migrations(request.user), pk=migration_id)
