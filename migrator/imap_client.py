@@ -275,12 +275,8 @@ class ImapClient:
                         cur_uid = int(m.group(2))
                 if cur_uid is not None and isinstance(body, (bytes, bytearray)):
                     text = bytes(body).decode("utf-8", "replace")
-                    mid = ""
-                    for line in text.splitlines():
-                        if line.lower().startswith("message-id:"):
-                            mid = line.split(":", 1)[1].strip()
-                            break
-                    out[cur_uid] = mid
+                    value = _extract_header(text, "message-id")
+                    out[cur_uid] = _normalize_message_id(value) if value else ""
                     cur_uid = None
         return out
 
@@ -370,20 +366,46 @@ def auto_pair_folders(
     return rows
 
 
+def _normalize_message_id(value: str) -> str:
+    """Canonical form for Message-ID comparison across servers.
+
+    Why: source and destination IMAP servers often disagree on surface form —
+    some strip the `<>`, some lowercase the domain, some add stray whitespace
+    on APPEND. Comparing raw header values produces false-positive "missing"
+    rows in Verify. Reducing to a single canonical token fixes that.
+    """
+    v = "".join(value.split())
+    if v.startswith("<"): v = v[1:]
+    if v.endswith(">"): v = v[:-1]
+    return v.lower()
+
+
+def _extract_header(head: str, name: str) -> str:
+    """Return the value of a header, joining RFC-5322 folded continuation lines."""
+    name_l = name.lower() + ":"
+    lines = head.splitlines()
+    for i, line in enumerate(lines):
+        if line.lower().startswith(name_l):
+            value = line.split(":", 1)[1]
+            j = i + 1
+            while j < len(lines) and lines[j][:1] in (" ", "\t"):
+                value += lines[j]
+                j += 1
+            return value.strip()
+    return ""
+
+
 def parse_message_id(raw: bytes) -> str:
     """Extract Message-ID from raw RFC822, normalised. Empty if absent."""
     head_end = raw.find(b"\r\n\r\n")
     if head_end == -1:
         head_end = raw.find(b"\n\n")
     head = raw[:head_end].decode("utf-8", "replace") if head_end != -1 else raw.decode("utf-8", "replace")
-    for line in head.splitlines():
-        if line.lower().startswith("message-id:"):
-            value = line.split(":", 1)[1].strip()
-            return value
-    return ""
+    value = _extract_header(head, "message-id")
+    return _normalize_message_id(value) if value else ""
 
 
 def synthetic_message_id(raw: bytes) -> str:
     """Stable sha-based fallback id for messages without a Message-ID header."""
     import hashlib
-    return f"<sha256-{hashlib.sha256(raw).hexdigest()}@local>"
+    return f"sha256-{hashlib.sha256(raw).hexdigest()}@local"

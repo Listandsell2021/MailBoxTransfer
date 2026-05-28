@@ -40,8 +40,13 @@
       </thead>
       <tbody>
         {% for r in folder_rows %}
-          <tr>
-            <td><b>{{ r.src }}</b></td>
+          <tr {% if r.missing_count %}class="mt-row-toggle" data-target="missing-{{ forloop.counter }}" style="cursor:pointer;"{% endif %}>
+            <td>
+              {% if r.missing_count %}
+                <svg class="mt-chev" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="color: var(--muted); margin-right:6px; vertical-align:middle; transition: transform .15s;"><polyline points="9 18 15 12 9 6"/></svg>
+              {% endif %}
+              <b>{{ r.src }}</b>
+            </td>
             <td>{{ r.destination }}</td>
             <td style="text-align:right; font-variant-numeric: tabular-nums;">{{ r.old_count }}</td>
             <td style="text-align:right; font-variant-numeric: tabular-nums;">{{ r.new_count }}</td>
@@ -60,6 +65,28 @@
               {% endif %}
             </td>
           </tr>
+          {% if r.missing_count %}
+            <tr id="missing-{{ forloop.counter }}" class="mt-missing-panel" hidden>
+              <td colspan="6" style="background: #fafafa; padding: 14px 22px 18px;">
+                <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px;">
+                  <div style="font-size:12px; color: var(--muted); font-weight:600; text-transform:uppercase; letter-spacing:.04em;">
+                    Sample of missing Message-IDs in <b style="color:var(--text); text-transform:none; letter-spacing:0;">{{ r.destination }}</b>
+                    <span style="font-weight:500; text-transform:none; letter-spacing:0; margin-left:6px;">
+                      (showing {{ r.sample_missing|length }} of {{ r.missing_count }})
+                    </span>
+                  </div>
+                  <button type="button" class="btn btn-grey mt-copy-ids" data-target="ids-{{ forloop.counter }}" style="padding:4px 10px; font-size:12px;">
+                    Copy all
+                  </button>
+                </div>
+                <pre id="ids-{{ forloop.counter }}" style="margin:0; padding:10px 12px; background:#fff; border:1px solid var(--card-border); border-radius:6px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:12px; line-height:1.55; color:#374151; max-height:220px; overflow:auto; white-space:pre-wrap; word-break:break-all;">{% for mid in r.sample_missing %}{{ mid }}{% if not forloop.last %}
+{% endif %}{% endfor %}</pre>
+                <div style="margin-top:8px; font-size:12px; color: var(--muted);">
+                  Look these IDs up in the source mailbox to confirm whether they are real losses or post-cutover arrivals. If the same count of "extra" messages exists on the destination, they balance the totals but do not match by ID.
+                </div>
+              </td>
+            </tr>
+          {% endif %}
         {% endfor %}
       </tbody>
     </table>
@@ -175,6 +202,32 @@
 {% block scripts %}
 <script>
 const MIG_ID = {{ migration.id }};
+
+document.querySelectorAll('.mt-row-toggle').forEach(row => {
+  row.addEventListener('click', (e) => {
+    if (e.target.closest('button, a')) return;
+    const panel = document.getElementById(row.dataset.target);
+    if (!panel) return;
+    const open = !panel.hasAttribute('hidden');
+    if (open) panel.setAttribute('hidden', '');
+    else panel.removeAttribute('hidden');
+    const chev = row.querySelector('.mt-chev');
+    if (chev) chev.style.transform = open ? '' : 'rotate(90deg)';
+  });
+});
+document.querySelectorAll('.mt-copy-ids').forEach(btn => {
+  btn.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    const el = document.getElementById(btn.dataset.target);
+    if (!el) return;
+    try {
+      await navigator.clipboard.writeText(el.textContent || '');
+      const orig = btn.textContent;
+      btn.textContent = 'Copied';
+      setTimeout(() => { btn.textContent = orig; }, 1200);
+    } catch (_) {}
+  });
+});
 
 const cb = document.getElementById('confirm-cb');
 const btn = document.getElementById('cleanup-btn');
