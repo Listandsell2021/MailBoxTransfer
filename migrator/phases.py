@@ -100,9 +100,10 @@ def _notify_phase_finished(run: PhaseRun) -> None:
     if run.finished_at:
         lines.append(f"Finished: {run.finished_at.isoformat(timespec='seconds')}")
     if not ok and run.error:
-        lines.append("")
-        lines.append("Error:")
-        lines.append(run.error.strip()[:2000])
+        first_line = run.error.strip().splitlines()[0] if run.error.strip() else ""
+        if first_line:
+            lines.append("")
+            lines.append(f"Error: {first_line[:300]}")
 
     body = "\n".join(lines) + "\n"
 
