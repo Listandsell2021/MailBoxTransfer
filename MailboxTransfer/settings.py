@@ -111,6 +111,7 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
+                'migrator.context_processors.turnstile',
             ],
         },
     },
@@ -156,6 +157,13 @@ SOCIALACCOUNT_PROVIDERS = {
         # see duplicate apps. Manage via /admin/socialaccount/socialapp/.
     }
 }
+
+# Cloudflare Turnstile — bot protection on the local signup form (see forms.py).
+# Get free keys at https://dash.cloudflare.com/?to=/:account/turnstile and set
+# both env vars. When unset (local/dev) the widget is skipped and the server-side
+# check is a no-op, so signup still works without Cloudflare.
+TURNSTILE_SITE_KEY = os.environ.get('TURNSTILE_SITE_KEY', '')
+TURNSTILE_SECRET_KEY = os.environ.get('TURNSTILE_SECRET_KEY', '')
 
 # Email sending — used by allauth for verification + by mail_admins on signup.
 # Defaults to console (prints to runserver terminal) until real SMTP env vars are set.
