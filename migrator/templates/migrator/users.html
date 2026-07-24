@@ -172,7 +172,7 @@
     <tbody>
       {% for u in users %}
         <tr class="{% if not u.is_active %}pending{% endif %}">
-          <td class="muted" style="font-variant-numeric: tabular-nums;">{{ u.id }}</td>
+          <td class="muted" style="font-variant-numeric: tabular-nums;">{{ forloop.counter }}</td>
           <td>
             <div class="user-cell">
               <span class="avatar">{{ u.first_name|default:u.get_username|slice:":1" }}</span>

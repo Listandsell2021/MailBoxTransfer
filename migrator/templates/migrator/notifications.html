@@ -1,0 +1,198 @@
+{% extends "migrator/base.html" %}
+{% block title %}Notifications · Mailbox Transfer{% endblock %}
+{% block content %}
+
+<style>
+  main { max-width: 1600px !important; }
+
+  .n-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 18px; }
+  .n-stats .stat {
+    background: var(--card); border: 1px solid var(--card-border);
+    border-radius: var(--r); padding: 14px 18px; box-shadow: var(--card-shadow);
+  }
+  .n-stats .stat .label {
+    font-size: 11px; font-weight: 600; color: var(--muted);
+    text-transform: uppercase; letter-spacing: .05em;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .n-stats .stat .value {
+    font-size: 26px; font-weight: 700; color: var(--text);
+    margin-top: 4px; letter-spacing: -0.02em; font-variant-numeric: tabular-nums;
+  }
+  @media (max-width: 720px) { .n-stats { grid-template-columns: 1fr; } }
+
+  .n-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
+
+  .filter-bar {
+    display: flex; align-items: center; gap: 8px;
+    background: var(--card); border: 1px solid var(--card-border);
+    border-radius: var(--r); padding: 8px; box-shadow: var(--card-shadow);
+    width: fit-content;
+  }
+  .filter-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 6px 12px; border-radius: 8px;
+    font-size: 13px; font-weight: 600; color: var(--text-secondary);
+    text-decoration: none; transition: background .12s, color .12s;
+  }
+  .filter-chip:hover { background: var(--subtle); color: var(--text); }
+  .filter-chip.is-active { background: var(--primary); color: #fff; }
+  .filter-chip .count {
+    background: rgba(15,23,42,.06); color: inherit;
+    padding: 1px 7px; border-radius: 999px;
+    font-size: 11.5px; font-weight: 700; font-variant-numeric: tabular-nums;
+  }
+  .filter-chip.is-active .count { background: rgba(255,255,255,.22); }
+
+  .n-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  .n-table thead th {
+    font-size: 11px; color: var(--muted); text-transform: uppercase;
+    letter-spacing: .05em; font-weight: 600; background: #fafbfc;
+    padding: 12px 18px; border-bottom: 1px solid var(--card-border);
+    text-align: left; white-space: nowrap;
+  }
+  .n-table tbody td { padding: 12px 18px; border-bottom: 1px solid var(--card-border); vertical-align: middle; }
+  .n-table tbody tr:last-child td { border-bottom: 0; }
+  .n-table tbody tr:hover { background: var(--hover); }
+  .n-table tbody tr.is-signup { background: #f5f3ff; }
+  .n-table tbody tr.is-signup:hover { background: #ede9fe; }
+
+  .hits-badge {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 28px; padding: 2px 8px; border-radius: 999px;
+    background: #eef2ff; color: var(--primary);
+    font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums;
+  }
+  .ip-cell { font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: var(--text); }
+  .time-cell { color: var(--muted); font-size: 13px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .path-cell { font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: var(--text-secondary); }
+  .ua-cell { color: var(--muted); font-size: 12px; max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .email-cell { font-size: 13px; color: var(--text); word-break: break-all; max-width: 260px; }
+
+  .empty-row td { padding: 56px 24px; text-align: center; color: var(--muted); }
+  .empty-row .icon-lg { color: #cbd5e1; margin: 0 auto 10px; display: block; width: 32px; height: 32px; }
+  .empty-row b { color: var(--text); display: block; margin-bottom: 4px; }
+</style>
+
+<div class="page-head">
+  <div>
+    <h1>Notifications</h1>
+    <p class="page-sub">Who's opening the sign-up / login pages and creating accounts, with IP and time. Admin-only.</p>
+  </div>
+</div>
+
+<div class="n-stats">
+  <div class="stat">
+    <div class="label">
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+      Total events
+    </div>
+    <div class="value">{{ stats.total }}</div>
+  </div>
+  <div class="stat">
+    <div class="label">
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg>
+      Page visits
+    </div>
+    <div class="value">{{ stats.visits }}</div>
+  </div>
+  <div class="stat">
+    <div class="label">
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" style="color: var(--primary);"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
+      Account signups
+    </div>
+    <div class="value">{{ stats.signups }}</div>
+  </div>
+</div>
+
+<div class="n-toolbar">
+  <div class="filter-bar">
+    <a class="filter-chip {% if kind_filter == 'all' %}is-active{% endif %}" href="?kind=all">
+      All <span class="count">{{ stats.total }}</span>
+    </a>
+    <a class="filter-chip {% if kind_filter == 'visit' %}is-active{% endif %}" href="?kind=visit">
+      Visits <span class="count">{{ stats.visits }}</span>
+    </a>
+    <a class="filter-chip {% if kind_filter == 'signup' %}is-active{% endif %}" href="?kind=signup">
+      Signups <span class="count">{{ stats.signups }}</span>
+    </a>
+  </div>
+  {% if stats.total %}
+  <form method="post" action="{% url 'migrator:clear_notifications' %}" class="js-clear-notifications" style="margin:0;">
+    {% csrf_token %}
+    <button type="submit" class="btn btn-grey">Clear all</button>
+  </form>
+  {% endif %}
+</div>
+
+<div class="card" style="padding: 0; overflow: hidden;">
+  <table class="n-table">
+    <thead>
+      <tr>
+        <th style="width: 130px;">Type</th>
+        <th style="width: 150px;">IP address</th>
+        <th style="width: 180px;">Page / email</th>
+        <th style="width: 80px; text-align: right;">Hits</th>
+        <th>Browser</th>
+        <th style="width: 170px; text-align: right;">Last seen</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for e in events %}
+        <tr class="{% if e.kind == 'signup' %}is-signup{% endif %}">
+          <td>
+            {% if e.kind == 'signup' %}
+              <span class="pill" style="background:#ede9fe; color:#6d28d9;">Signup</span>
+            {% else %}
+              <span class="pill grey">Visit</span>
+            {% endif %}
+          </td>
+          <td class="ip-cell">{{ e.ip_address|default:"—" }}</td>
+          <td>
+            {% if e.kind == 'signup' %}
+              <span class="email-cell">{{ e.email|default:"—" }}</span>
+            {% else %}
+              <span class="path-cell">{{ e.path|default:"—" }}</span>
+            {% endif %}
+          </td>
+          <td style="text-align: right;">
+            {% if e.hits > 1 %}
+              <span class="hits-badge">{{ e.hits }}×</span>
+            {% else %}
+              <span class="muted" style="font-variant-numeric: tabular-nums;">1</span>
+            {% endif %}
+          </td>
+          <td><span class="ua-cell" title="{{ e.user_agent }}">{{ e.user_agent|default:"—" }}</span></td>
+          <td class="time-cell" style="text-align: right;" title="First seen: {{ e.created_at|date:'Y-m-d H:i:s' }}">{{ e.last_seen|date:"Y-m-d H:i:s" }}</td>
+        </tr>
+      {% empty %}
+        <tr class="empty-row">
+          <td colspan="6">
+            <svg class="icon-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+            <b>Nothing here yet</b>
+            Visits to the sign-up / login pages and new account signups will appear here.
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+  document.querySelectorAll('.js-clear-notifications').forEach(form => {
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const result = await mtSwal.confirm({
+        title: 'Clear all notifications?',
+        html: '<div>This permanently deletes every recorded visit and signup event. There is no undo.</div>',
+        confirmText: 'Clear all',
+        danger: true,
+      });
+      if (result.isConfirmed) form.submit();
+    });
+  });
+</script>
+{% endblock %}

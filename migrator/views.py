@@ -28,7 +28,7 @@ from django.contrib.auth.forms import PasswordChangeForm
 
 from .forms import MigrationForm, ProfileForm
 from .imap_client import ImapClient, auto_pair_folders
-from .models import FolderMapping, Migration, MessageRecord, PhaseRun, UserProfile, VerificationReport
+from .models import AccessEvent, FolderMapping, Migration, MessageRecord, PhaseRun, UserProfile, VerificationReport
 from .phases import CleanupGate, launch_phase
 from .runtime import STATE, Credentials, load_credentials
 from .crypto import encrypt
@@ -451,6 +451,64 @@ def delete_user(request: HttpRequest, user_id: int) -> HttpResponse:
     else:
         messages.success(request, f"Deleted {label}.")
     return redirect("migrator:users")
+
+
+# ---------------------------------------------------------------------------
+# Admin notifications feed (page visits + signups)
+# ---------------------------------------------------------------------------
+
+@otp_required(login_url="migrator:login")
+def notifications(request: HttpRequest) -> HttpResponse:
+    """Admin-only activity feed: auth-page visits and account signups, each
+    with IP + time. Accepts ?kind=visit|signup|all (default all).
+
+    Visiting the page marks everything currently shown as seen, which clears
+    the nav badge.
+    """
+    if not _is_admin(request.user):
+        raise Http404()
+
+    kind = (request.GET.get("kind") or "all").lower()
+    base_qs = AccessEvent.objects.all()
+    if kind == AccessEvent.KIND_VISIT:
+        events_qs = base_qs.filter(kind=AccessEvent.KIND_VISIT)
+    elif kind == AccessEvent.KIND_SIGNUP:
+        events_qs = base_qs.filter(kind=AccessEvent.KIND_SIGNUP)
+    else:
+        kind = "all"
+        events_qs = base_qs
+
+    events = list(events_qs[:500])
+
+    # Mark the unseen ones seen so the badge clears. Do it after slicing so we
+    # only touch what the admin is actually looking at.
+    unseen_ids = [e.id for e in events if not e.seen]
+    if unseen_ids:
+        AccessEvent.objects.filter(id__in=unseen_ids).update(seen=True)
+
+    stats = {
+        "total":   base_qs.count(),
+        "visits":  base_qs.filter(kind=AccessEvent.KIND_VISIT).count(),
+        "signups": base_qs.filter(kind=AccessEvent.KIND_SIGNUP).count(),
+    }
+
+    return render(request, "migrator/notifications.html", {
+        "events": events,
+        "stats": stats,
+        "kind_filter": kind,
+        "nav_active": "notifications",
+    })
+
+
+@otp_required(login_url="migrator:login")
+@require_POST
+def clear_notifications(request: HttpRequest) -> HttpResponse:
+    """Admin-only: delete all recorded access events."""
+    if not _is_admin(request.user):
+        raise Http404()
+    deleted, _ = AccessEvent.objects.all().delete()
+    messages.success(request, f"Cleared {deleted} notification(s).")
+    return redirect("migrator:notifications")
 
 
 # ---------------------------------------------------------------------------

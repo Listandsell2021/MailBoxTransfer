@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.db import models
+from django.utils import timezone
 
 
 class Migration(models.Model):
@@ -149,6 +150,44 @@ class UserProfile(models.Model):
 
     def resolved_email(self) -> str:
         return (self.notify_email or self.user.email or "").strip()
+
+
+class AccessEvent(models.Model):
+    """Admin-only activity feed: who opened an auth page or created an account.
+
+    Populated by AccessLogMiddleware (page visits) and the signup adapter
+    (account creations). Surfaced on the admin Notifications page. `seen`
+    drives the unread badge in the nav.
+    """
+
+    KIND_VISIT = "visit"
+    KIND_SIGNUP = "signup"
+    KIND_CHOICES = [
+        (KIND_VISIT, "Page visit"),
+        (KIND_SIGNUP, "Account signup"),
+    ]
+
+    kind = models.CharField(max_length=20, choices=KIND_CHOICES, default=KIND_VISIT)
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    path = models.CharField(max_length=300, blank=True)
+    # For signup events: the email address that was submitted.
+    email = models.CharField(max_length=254, blank=True)
+    user_agent = models.CharField(max_length=400, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)   # first seen
+    last_seen = models.DateTimeField(default=timezone.now)  # bumped on repeat visits
+    hits = models.PositiveIntegerField(default=1)           # times this row was hit
+    seen = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ["-last_seen", "-id"]
+        indexes = [
+            models.Index(fields=["-last_seen"]),
+            models.Index(fields=["seen"]),
+            models.Index(fields=["kind"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.get_kind_display()} from {self.ip_address or '?'} @ {self.last_seen:%Y-%m-%d %H:%M}"
 
 
 class VerificationReport(models.Model):

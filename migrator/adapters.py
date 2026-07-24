@@ -38,7 +38,25 @@ class MailboxAccountAdapter(DefaultAccountAdapter):
         user.last_name = (form.cleaned_data.get("last_name") or "").strip()
         if commit:
             user.save()
+            self._log_signup_event(request, user)
         return user
+
+    def _log_signup_event(self, request, user):
+        # Record the account-creation attempt in the admin Notifications feed.
+        # Never let a logging hiccup break the signup itself.
+        from .middleware import get_client_ip
+        from .models import AccessEvent
+        try:
+            user_agent = request.META.get("HTTP_USER_AGENT", "") if request else ""
+            AccessEvent.objects.create(
+                kind=AccessEvent.KIND_SIGNUP,
+                ip_address=get_client_ip(request) if request else None,
+                path=getattr(request, "path", "") or "",
+                email=(user.email or "")[:254],
+                user_agent=(user_agent or "")[:400],
+            )
+        except Exception:
+            pass
 
     def confirm_email(self, request, email_address):
         # Email verified → switch to "awaiting admin approval" and notify the admin.

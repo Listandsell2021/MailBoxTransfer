@@ -93,10 +93,11 @@ MIDDLEWARE = [
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django_otp.middleware.OTPMiddleware',           # 2FA — must come right after auth
-    'allauth.account.middleware.AccountMiddleware',  # allauth 
+    'allauth.account.middleware.AccountMiddleware',  # allauth
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    
+    # Records auth-page visits into the admin Notifications feed.
+    'migrator.middleware.AccessLogMiddleware',
 ]
 
 ROOT_URLCONF = 'MailboxTransfer.urls'
@@ -112,6 +113,7 @@ TEMPLATES = [
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
                 'migrator.context_processors.turnstile',
+                'migrator.context_processors.notifications_badge',
             ],
         },
     },

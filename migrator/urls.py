@@ -18,6 +18,9 @@ urlpatterns = [
     path("users/<int:user_id>/toggle-active/", views.toggle_user_active, name="toggle_user_active"),
     path("users/<int:user_id>/delete/", views.delete_user, name="delete_user"),
 
+    path("notifications/", views.notifications, name="notifications"),
+    path("notifications/clear/", views.clear_notifications, name="clear_notifications"),
+
     path("config/new/", views.config, name="config_new"),
     path("config/<int:migration_id>/", views.config, name="config_edit"),
     path("config/<int:migration_id>/delete/", views.delete_migration, name="delete_migration"),
