@@ -16,7 +16,7 @@ from django.utils import timezone
 WATCHED_PATHS = ("/accounts/signup/", "/login/")
 
 # Don't record the same IP hitting the same page more than once per window.
-DEDUP_WINDOW = timedelta(minutes=15)
+DEDUP_WINDOW = timedelta(minutes=60)
 
 
 def get_client_ip(request) -> str | None:

@@ -252,7 +252,7 @@ def home(request: HttpRequest) -> HttpResponse:
     if is_admin:
         from django.contrib.auth import get_user_model
         UserModel = get_user_model()
-        user_count = UserModel.objects.count()
+        user_count = UserModel.objects.filter(is_superuser=False).count()
         pending_approvals = (
             UserModel.objects.filter(is_active=False, is_superuser=False).count()
         )
