@@ -1,15 +1,8 @@
-import json
-from urllib import parse as urllib_parse, request as urllib_request
-from urllib.error import URLError
-
 from django import forms
-from django.conf import settings
 
 from allauth.account.forms import SignupForm
 
 from .models import Migration, UserProfile
-
-TURNSTILE_VERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
 
 
 class MailboxSignupForm(SignupForm):
@@ -35,26 +28,34 @@ class MailboxSignupForm(SignupForm):
     def clean(self):
         cleaned = super().clean()
         self._verify_turnstile()
+        self._verify_email_domain(cleaned.get("email"))
         return cleaned
 
+    def _verify_email_domain(self, email):
+        # Reject signups whose email domain can't receive mail, so we never
+        # send a verification email to a dead/fake domain (the bounce source).
+        # Fail open: only block on a definitive "domain doesn't exist".
+        from .email_validation import domain_can_receive_mail, email_domain
+        domain = email_domain(email or "")
+        if not domain:
+            return
+        if domain_can_receive_mail(domain) is False:
+            self.add_error(
+                "email",
+                forms.ValidationError(
+                    "That email domain can't receive mail. Please check the address."
+                ),
+            )
+
     def _verify_turnstile(self):
-        secret = getattr(settings, "TURNSTILE_SECRET_KEY", "")
-        if not secret:
+        from .turnstile import enforced, verify_token
+        if not enforced():
             # Unconfigured (local/dev): no CAPTCHA to enforce.
             return
         token = (self.data.get("cf-turnstile-response") or "").strip()
         if not token:
             raise forms.ValidationError("Please complete the CAPTCHA to continue.")
-        payload = urllib_parse.urlencode({"secret": secret, "response": token}).encode()
-        try:
-            req = urllib_request.Request(TURNSTILE_VERIFY_URL, data=payload)
-            with urllib_request.urlopen(req, timeout=10) as resp:
-                result = json.loads(resp.read().decode())
-        except (URLError, ValueError, OSError):
-            raise forms.ValidationError(
-                "Could not verify the CAPTCHA right now. Please try again."
-            )
-        if not result.get("success"):
+        if not verify_token(token):
             raise forms.ValidationError("CAPTCHA verification failed. Please try again.")
 
     def save(self, request):

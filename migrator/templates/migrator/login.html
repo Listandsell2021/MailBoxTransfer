@@ -270,6 +270,9 @@
           </button>
         </div>
       </div>
+      {% if TURNSTILE_SITE_KEY %}
+        <div class="cf-turnstile" data-sitekey="{{ TURNSTILE_SITE_KEY }}" data-theme="auto"></div>
+      {% endif %}
       <button type="submit" class="submit-btn">Sign in</button>
     </form>
 
@@ -295,6 +298,9 @@
       <span class="hint">Authorized users only</span>
     </footer>
   </div>
+{% if TURNSTILE_SITE_KEY %}
+<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+{% endif %}
 <script>
   document.querySelectorAll('.pw-toggle').forEach(btn => {
     btn.addEventListener('click', () => {

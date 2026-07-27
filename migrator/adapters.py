@@ -9,14 +9,15 @@ from allauth.socialaccount.adapter import DefaultSocialAccountAdapter
 class MailboxAccountAdapter(DefaultAccountAdapter):
     """Local-signup adapter for the Mailbox Transfer app.
 
-    State machine:
-      1. Signup       → user is created active-but-unverified. Verification email
-                        goes out. allauth's mandatory-verification gate blocks
-                        login during this window even though is_active is True.
-      2. Email verified → confirm_email() flips is_active to False so the user
-                          still can't log in. mail_admins() nudges the admin.
-      3. Admin ticks    → admin sets is_active=True in /admin/auth/user/. Login
-         'is active'      now succeeds and the user proceeds to TOTP setup.
+    Approval-gated, no signup mail. State machine:
+      1. Signup      → user created is_active=False. NO email is sent (that's the
+                       whole point — we never mail bot/harvested addresses). The
+                       admin is notified in-app (Notifications) + by mail_admins.
+                       allauth shows the "awaiting approval" page.
+      2. Admin ticks → admin clicks Activate on the Users page → is_active=True,
+                       and a single "you're approved" email goes to the user
+                       (see views.toggle_user_active). Login now succeeds and the
+                       user proceeds to TOTP setup.
     """
 
     def is_open_for_signup(self, request):
@@ -30,15 +31,17 @@ class MailboxAccountAdapter(DefaultAccountAdapter):
         return str(subject).strip()
 
     def save_user(self, request, user, form, commit=True):
-        # Persist first/last name from the signup form; leave is_active=True so
-        # the verification email actually goes out (allauth skips emailing
-        # inactive users — they can't log in anyway).
+        # Create the account INACTIVE (pending admin approval) and persist
+        # first/last name. No verification email is sent — the account can't log
+        # in until an admin approves it, and only then do we email the user.
         user = super().save_user(request, user, form, commit=False)
         user.first_name = (form.cleaned_data.get("first_name") or "").strip()
         user.last_name = (form.cleaned_data.get("last_name") or "").strip()
+        user.is_active = False
         if commit:
             user.save()
             self._log_signup_event(request, user)
+            self._mail_admins_about_signup(user, user.email)
         return user
 
     def _log_signup_event(self, request, user):
@@ -58,15 +61,6 @@ class MailboxAccountAdapter(DefaultAccountAdapter):
         except Exception:
             pass
 
-    def confirm_email(self, request, email_address):
-        # Email verified → switch to "awaiting admin approval" and notify the admin.
-        super().confirm_email(request, email_address)
-        user = email_address.user
-        if user.is_active:
-            user.is_active = False
-            user.save(update_fields=["is_active"])
-        self._mail_admins_about_signup(user, email_address.email)
-
     def _mail_admins_about_signup(self, user, email):
         if not settings.ADMINS:
             return
@@ -78,10 +72,10 @@ class MailboxAccountAdapter(DefaultAccountAdapter):
         mail_admins(
             subject=f"[Mailbox Transfer] New signup awaiting approval: {label}",
             message=(
-                f"A user has verified their email and is now waiting for activation.\n\n"
+                f"A new account has signed up and is waiting for your approval.\n\n"
                 f"Name:  {label}\n"
                 f"Email: {email}\n\n"
-                f"Activate them from the Users page (click 'Activate' on their row):\n"
+                f"Review and activate them from the Users page (click 'Activate' on their row):\n"
                 f"  {users_url}\n"
             ),
             fail_silently=True,

@@ -138,9 +138,13 @@ TWO_FACTOR_PATCH_ADMIN = True
 # Without this, django-two-factor-auth falls back to the Sites framework name (often "localhost").
 OTP_TOTP_ISSUER = 'Mailbox Transfer'
 
-# allauth — Google OAuth + local email/password signup with mandatory email verification.
-# Local signups are created with is_active=False and require admin approval (see adapters.py).
-ACCOUNT_EMAIL_VERIFICATION = 'mandatory'
+# allauth — Google OAuth + local email/password signup, gated by ADMIN APPROVAL.
+# Local signups are created with is_active=False and send NO verification email
+# (see adapters.py). No mail goes out until an admin approves the account, at
+# which point a single "you're approved" email is sent (see toggle_user_active).
+# This keeps us from ever emailing bot/harvested addresses and protects sender
+# reputation. 'none' stops allauth from sending its own verification mail.
+ACCOUNT_EMAIL_VERIFICATION = 'none'
 ACCOUNT_LOGIN_METHODS = {'email'}
 ACCOUNT_SIGNUP_FIELDS = ['email*', 'password1*', 'password2*']
 ACCOUNT_EMAIL_CONFIRMATION_EXPIRE_DAYS = 3

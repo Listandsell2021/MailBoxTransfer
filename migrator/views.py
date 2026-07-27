@@ -14,6 +14,7 @@ from django.http import (
 from django.contrib import messages
 from django.contrib.auth import authenticate, login as auth_login
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_POST
@@ -56,6 +57,15 @@ def login(request: HttpRequest) -> HttpResponse:
     if request.method == "POST":
         username = (request.POST.get("username") or "").strip()
         password = request.POST.get("password") or ""
+
+        # Turnstile gate: bots hammering /login/ get stopped before we even
+        # touch the credentials. Skipped automatically when unconfigured (dev).
+        from .turnstile import enforced, verify_token
+        if enforced() and not verify_token(request.POST.get("cf-turnstile-response")):
+            return render(request, "migrator/login.html", {
+                "error": "Please complete the CAPTCHA and try again.",
+            })
+
         user = authenticate(request, username=username, password=password)
         if user is not None:
             auth_login(
@@ -64,16 +74,14 @@ def login(request: HttpRequest) -> HttpResponse:
             )
             return redirect("migrator:after_login")
 
-        # Distinguish "wrong password" from "verified but awaiting admin approval"
-        # so users know what to do next.
+        # Distinguish "wrong password" from "signed up, awaiting admin approval"
+        # so users know what to do next. A correct password on an inactive
+        # account means they're pending approval, not that they mistyped.
         from django.contrib.auth import get_user_model
-        from allauth.account.models import EmailAddress
         User = get_user_model()
         candidate = User.objects.filter(email__iexact=username).first() if username else None
         if candidate and not candidate.is_active and candidate.check_password(password):
-            verified = EmailAddress.objects.filter(user=candidate, verified=True).exists()
-            if verified:
-                return render(request, "account/account_inactive.html")
+            return render(request, "account/account_inactive.html")
         error = "Invalid email or password."
 
     return render(request, "migrator/login.html", {"error": error})
@@ -406,14 +414,54 @@ def toggle_user_active(request: HttpRequest, user_id: int) -> HttpResponse:
         )
         return redirect("migrator:users")
 
+    was_active = target.is_active
     target.is_active = not target.is_active
     target.save(update_fields=["is_active"])
     label = target.get_username() or target.email
+
     if target.is_active:
-        messages.success(request, f"Activated {label}. They can sign in now.")
+        # Approval transition (inactive → active): tell the user they're in.
+        # This is the ONLY signup-related email we send, and only to an account
+        # an admin just vetted — so it never lands on a bot/harvested address.
+        if not was_active:
+            emailed = _send_approval_email(request, target)
+            if emailed:
+                messages.success(request, f"Activated {label} and emailed them. They can sign in now.")
+            else:
+                messages.success(request, f"Activated {label}. They can sign in now (no email on file to notify).")
+        else:
+            messages.success(request, f"Activated {label}. They can sign in now.")
     else:
         messages.success(request, f"Deactivated {label}.")
     return redirect("migrator:users")
+
+
+def _send_approval_email(request: HttpRequest, user) -> bool:
+    """Send the one-and-only 'your account is approved' email. Returns True if
+    an email was actually dispatched. Never raises — approval must not fail just
+    because mail delivery hiccups."""
+    to_addr = (user.email or "").strip()
+    if not to_addr:
+        return False
+    from django.core.mail import send_mail
+    login_url = request.build_absolute_uri(reverse("migrator:login"))
+    name = (user.first_name or "").strip() or "there"
+    try:
+        send_mail(
+            subject="Your Mailbox Transfer account is approved",
+            message=(
+                f"Hi {name},\n\n"
+                f"Your Mailbox Transfer account has been approved. You can now sign in:\n"
+                f"  {login_url}\n\n"
+                f"On first sign-in you'll set up two-factor authentication.\n"
+            ),
+            from_email=None,  # uses DEFAULT_FROM_EMAIL
+            recipient_list=[to_addr],
+            fail_silently=True,
+        )
+        return True
+    except Exception:
+        return False
 
 
 @otp_required(login_url="migrator:login")
