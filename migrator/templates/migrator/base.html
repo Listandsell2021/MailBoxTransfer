@@ -197,19 +197,66 @@
     padding: 1px 6px; letter-spacing: .04em; text-transform: uppercase;
     margin-left: 4px;
   }
+  /* Mobile top bar + drawer scrim — hidden on desktop, shown under 860px */
+  .mobile-topbar {
+    display: none; align-items: center; gap: 10px;
+    padding: 10px 14px; background: #ffffff;
+    border-bottom: 1px solid var(--card-border);
+    position: sticky; top: 0; z-index: 40;
+  }
+  .mobile-topbar .nav-toggle {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 38px; height: 38px; padding: 0; flex-shrink: 0;
+    background: #ffffff; color: var(--text);
+    border: 1px solid var(--card-border); border-radius: var(--r-sm);
+    position: relative;
+  }
+  .mobile-topbar .nav-toggle:hover { background: var(--subtle); }
+  .mobile-topbar .nav-toggle .dot-badge {
+    position: absolute; top: -4px; right: -4px;
+    min-width: 16px; height: 16px; padding: 0 4px;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: #ef4444; color: #fff; border-radius: 999px;
+    font-size: 10px; font-weight: 700; line-height: 1;
+    border: 2px solid #fff;
+  }
+  .mobile-topbar .brand-mini {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-size: 14px; font-weight: 700; letter-spacing: -0.015em; color: var(--text);
+    min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .mobile-topbar .brand-mini .logo {
+    width: 26px; height: 26px; border-radius: 7px; flex-shrink: 0;
+    background: linear-gradient(135deg, #4f46e5, #7c3aed);
+    display: inline-flex; align-items: center; justify-content: center; color: #fff;
+  }
+  .sidebar-scrim {
+    display: none; position: fixed; inset: 0;
+    background: rgba(15,23,42,.45); backdrop-filter: blur(1px);
+    z-index: 50; opacity: 0; transition: opacity .2s ease;
+  }
+  .sidebar-scrim.is-open { opacity: 1; }
+
   @media (max-width: 860px) {
     .app-shell { flex-direction: column; }
-    aside.sidebar { width: 100%; height: auto; position: static;
-      flex-direction: row; flex-wrap: wrap; gap: 8px; padding: 12px 14px; align-items: center; }
-    aside.sidebar .brand { border-bottom: 0; padding: 0; margin: 0; }
-    aside.sidebar .nav { flex-direction: row; flex-wrap: wrap; flex: 1; justify-content: flex-end; }
-    aside.sidebar .user-area { margin: 0; border-top: 0; border-left: 1px solid var(--card-border); padding-left: 4px; }
-    aside.sidebar .user-card { padding: 4px 12px; }
-    aside.sidebar .signout-form { left: auto; right: 0; bottom: auto; top: 100%; }
-    aside.sidebar .signout-form button { padding: 7px 11px; }
+    .mobile-topbar { display: flex; }
+    aside.sidebar {
+      position: fixed; top: 0; left: 0; bottom: 0;
+      width: 268px; max-width: 84vw; height: 100%;
+      padding: 18px 14px; overflow-y: auto;
+      transform: translateX(-100%);
+      transition: transform .22s ease;
+      box-shadow: 0 10px 40px -10px rgba(15,23,42,.4);
+      z-index: 60;
+    }
+    aside.sidebar.is-open { transform: translateX(0); }
+    .sidebar-scrim.is-open { display: block; }
+    body.nav-open { overflow: hidden; }
   }
 
   main { padding: 28px 36px; flex: 1; min-width: 0; }
+  @media (max-width: 860px) { main { padding: 20px 16px; } }
+  @media (max-width: 560px) { main { padding: 16px 12px; } }
 
   /* Cards */
   .card {
@@ -420,8 +467,14 @@
     font-size: 22px; font-weight: 700; letter-spacing: -0.02em;
     margin: 0; color: var(--text);
   }
-  .page-head .actions { display: flex; gap: 8px; align-items: center; }
+  .page-head .actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   .page-sub { color: var(--muted); font-size: 14px; margin: 0 0 22px; }
+  @media (max-width: 560px) {
+    .page-head { flex-direction: column; align-items: flex-start; gap: 10px; }
+    .page-head h1 { font-size: 19px; }
+    .row { flex-wrap: wrap; }
+    .card { padding: 18px 16px; }
+  }
 
   /* Empty state */
   .empty {
@@ -581,7 +634,20 @@
 <body>
 <div class="app-shell">
 {% if user.is_authenticated %}
-<aside class="sidebar">
+<header class="mobile-topbar">
+  <button type="button" class="nav-toggle" id="navToggle" aria-label="Open navigation" aria-expanded="false" aria-controls="appSidebar">
+    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+    {% if unseen_notifications %}<span class="dot-badge">{{ unseen_notifications }}</span>{% endif %}
+  </button>
+  <span class="brand-mini">
+    <span class="logo">
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+    </span>
+    Mailbox Transfer
+  </span>
+</header>
+<div class="sidebar-scrim" id="sidebarScrim"></div>
+<aside class="sidebar" id="appSidebar">
   <div class="brand">
     <span class="logo">
       <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
@@ -653,6 +719,30 @@
   })();
   </script>
 </aside>
+<script>
+(function(){
+  // Mobile drawer nav: hamburger opens the sidebar over a scrim under 860px.
+  const btn = document.getElementById('navToggle');
+  const sidebar = document.getElementById('appSidebar');
+  const scrim = document.getElementById('sidebarScrim');
+  if (!btn || !sidebar || !scrim) return;
+
+  function setOpen(open) {
+    sidebar.classList.toggle('is-open', open);
+    scrim.classList.toggle('is-open', open);
+    document.body.classList.toggle('nav-open', open);
+    btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    btn.setAttribute('aria-label', open ? 'Close navigation' : 'Open navigation');
+  }
+
+  btn.addEventListener('click', () => setOpen(!sidebar.classList.contains('is-open')));
+  scrim.addEventListener('click', () => setOpen(false));
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') setOpen(false); });
+  // Navigating away from a drawer link should not leave the scrim/body locked.
+  sidebar.querySelectorAll('.nav a').forEach(a => a.addEventListener('click', () => setOpen(false)));
+  window.matchMedia('(min-width: 861px)').addEventListener('change', (e) => { if (e.matches) setOpen(false); });
+})();
+</script>
 {% endif %}
 <main>
 {% block content %}{% endblock %}

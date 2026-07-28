@@ -19,7 +19,11 @@
     font-size: 26px; font-weight: 700; color: var(--text);
     margin-top: 4px; letter-spacing: -0.02em; font-variant-numeric: tabular-nums;
   }
-  @media (max-width: 720px) { .n-stats { grid-template-columns: 1fr; } }
+  @media (max-width: 720px) {
+    .n-stats { grid-template-columns: 1fr; gap: 10px; }
+    .n-stats .stat { padding: 12px 14px; }
+    .n-stats .stat .value { font-size: 22px; }
+  }
 
   .n-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
 
@@ -44,7 +48,16 @@
   }
   .filter-chip.is-active .count { background: rgba(255,255,255,.22); }
 
+  @media (max-width: 620px) {
+    .n-toolbar { flex-direction: column; align-items: stretch; }
+    .filter-bar { width: 100%; overflow-x: auto; }
+    .filter-chip { flex: 1; justify-content: center; white-space: nowrap; }
+    .n-toolbar form { width: 100%; }
+    .n-toolbar form .btn { width: 100%; justify-content: center; }
+  }
+
   .n-table { width: 100%; min-width: 1000px; border-collapse: collapse; font-size: 14px; table-layout: fixed; }
+  .n-table .right-align { text-align: right; }
   /* Browser column truncates instead of pushing the time columns off-screen. */
   .n-table td.browser-cell { overflow: hidden; }
   .n-table thead th {
@@ -74,6 +87,31 @@
   .empty-row td { padding: 56px 24px; text-align: center; color: var(--muted); }
   .empty-row .icon-lg { color: #cbd5e1; margin: 0 auto 10px; display: block; width: 32px; height: 32px; }
   .empty-row b { color: var(--text); display: block; margin-bottom: 4px; }
+
+  /* Under 820px the 7-column table stops being scrollable-usable — each row
+     becomes a stacked card with the header text repeated as a label. */
+  @media (max-width: 820px) {
+    .n-table, .n-table tbody, .n-table tr, .n-table td { display: block; width: 100%; }
+    .n-table { min-width: 0; table-layout: auto; }
+    .n-table thead { display: none; }
+    .n-table tbody tr { padding: 12px 14px; border-bottom: 1px solid var(--card-border); }
+    .n-table tbody tr:last-child { border-bottom: 0; }
+    .n-table tbody td {
+      display: flex; gap: 14px; align-items: baseline; justify-content: space-between;
+      padding: 4px 0; border-bottom: 0; text-align: right;
+    }
+    .n-table tbody td::before {
+      content: attr(data-label);
+      font-size: 11px; font-weight: 600; color: var(--muted);
+      text-transform: uppercase; letter-spacing: .05em;
+      flex-shrink: 0; text-align: left;
+    }
+    .n-table tbody td.browser-cell { overflow: visible; }
+    .ua-cell { white-space: normal; overflow: visible; text-overflow: clip; word-break: break-word; text-align: right; }
+    .email-cell { max-width: none; }
+    .empty-row td { display: block; padding: 44px 16px; text-align: center; }
+    .empty-row td::before { content: none; }
+  }
 </style>
 
 <div class="page-head">
@@ -135,40 +173,40 @@
         <th style="width: 130px;">Type</th>
         <th style="width: 150px;">IP address</th>
         <th style="width: 180px;">Page / email</th>
-        <th style="width: 80px; text-align: right;">Hits</th>
+        <th class="right-align" style="width: 80px;">Hits</th>
         <th>Browser</th>
-        <th style="width: 170px; text-align: right;">First seen</th>
-        <th style="width: 170px; text-align: right;">Last seen</th>
+        <th class="right-align" style="width: 170px;">First seen</th>
+        <th class="right-align" style="width: 170px;">Last seen</th>
       </tr>
     </thead>
     <tbody>
       {% for e in events %}
         <tr class="{% if e.kind == 'signup' %}is-signup{% endif %}">
-          <td>
+          <td data-label="Type">
             {% if e.kind == 'signup' %}
               <span class="pill" style="background:#ede9fe; color:#6d28d9;">Signup</span>
             {% else %}
               <span class="pill grey">Visit</span>
             {% endif %}
           </td>
-          <td class="ip-cell">{{ e.ip_address|default:"—" }}</td>
-          <td>
+          <td class="ip-cell" data-label="IP address">{{ e.ip_address|default:"—" }}</td>
+          <td data-label="{% if e.kind == 'signup' %}Email{% else %}Page{% endif %}">
             {% if e.kind == 'signup' %}
               <span class="email-cell">{{ e.email|default:"—" }}</span>
             {% else %}
               <span class="path-cell">{{ e.path|default:"—" }}</span>
             {% endif %}
           </td>
-          <td style="text-align: right;">
+          <td class="right-align" data-label="Hits">
             {% if e.hits > 1 %}
               <span class="hits-badge">{{ e.hits }}×</span>
             {% else %}
               <span class="muted" style="font-variant-numeric: tabular-nums;">1</span>
             {% endif %}
           </td>
-          <td class="browser-cell"><span class="ua-cell" title="{{ e.user_agent }}">{{ e.user_agent|default:"—" }}</span></td>
-          <td class="time-cell" style="text-align: right;" title="When first opened / created">{{ e.created_at|date:"Y-m-d H:i:s" }}</td>
-          <td class="time-cell" style="text-align: right;" title="Most recent hit">{{ e.last_seen|date:"Y-m-d H:i:s" }}</td>
+          <td class="browser-cell" data-label="Browser"><span class="ua-cell" title="{{ e.user_agent }}">{{ e.user_agent|default:"—" }}</span></td>
+          <td class="time-cell right-align" data-label="First seen" title="When first opened / created">{{ e.created_at|date:"Y-m-d H:i:s" }}</td>
+          <td class="time-cell right-align" data-label="Last seen" title="Most recent hit">{{ e.last_seen|date:"Y-m-d H:i:s" }}</td>
         </tr>
       {% empty %}
         <tr class="empty-row">
