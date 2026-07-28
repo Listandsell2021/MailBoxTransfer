@@ -20,7 +20,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_POST
 
 from django.db import transaction
-from django.db.models import Count, Q
+from django.db.models import Count, Exists, OuterRef, Q
 
 from django_otp import devices_for_user, login as otp_login, user_has_device
 from django_otp.decorators import otp_required
@@ -213,6 +213,20 @@ def profile(request: HttpRequest) -> HttpResponse:
 # Home dashboard (aggregate stats + recent migrations)
 # ---------------------------------------------------------------------------
 
+def _current_phase_runs(runs):
+    """Narrow a PhaseRun queryset to the latest attempt of each phase per
+    migration. Every run of a phase inserts a new row, so an old failure sits
+    in the table forever next to the successful re-run that replaced it — this
+    keeps only the row that reflects the phase's state right now (same 'newest
+    id wins' rule as _phase_summary)."""
+    newer = PhaseRun.objects.filter(
+        migration_id=OuterRef("migration_id"),
+        phase=OuterRef("phase"),
+        id__gt=OuterRef("id"),
+    )
+    return runs.annotate(_superseded=Exists(newer)).filter(_superseded=False)
+
+
 @otp_required(login_url="migrator:login")
 def home(request: HttpRequest) -> HttpResponse:
     """Top-level dashboard. Admin sees system-wide numbers; everyone else sees
@@ -258,16 +272,19 @@ def home(request: HttpRequest) -> HttpResponse:
             UserModel.objects.filter(is_active=False, is_superuser=False).count()
         )
 
-    # Failed phases in the last 24h (scoped to what the user can see).
+    # Failed phases, scoped to what the user can see. Only failures that are
+    # still the latest attempt of their phase count: re-running a phase that
+    # succeeds must clear the old failure, otherwise the dashboard keeps
+    # reporting an error the user has already fixed.
     from datetime import timedelta
-    failed_qs = (
+    still_current_failures = _current_phase_runs(
         PhaseRun.objects.filter(migration__in=qs, status=PhaseRun.STATUS_FAILED)
-        .filter(finished_at__gte=timezone.now() - timedelta(hours=24))
     )
-    failed_24h_count = failed_qs.count()
+    failed_24h_count = still_current_failures.filter(
+        finished_at__gte=timezone.now() - timedelta(hours=24)
+    ).count()
     recent_failures = list(
-        PhaseRun.objects
-        .filter(migration__in=qs, status=PhaseRun.STATUS_FAILED)
+        still_current_failures
         .select_related("migration", "migration__owner")
         .order_by("-finished_at")[:5]
     )
