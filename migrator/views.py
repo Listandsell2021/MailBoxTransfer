@@ -1051,12 +1051,21 @@ def _build_report_context(migration: Migration) -> dict:
         backed = c.get("backed_up_n", 0)
         transferred = c.get("transferred_n", 0)
         missing = v.get("missing_count", 0)
+        sample_missing = list(v.get("sample_missing") or [])
         folder_rows.append({
             "src": m.old_folder,
             "dst": m.new_folder or m.old_folder,
             "backed_up": backed,
             "transferred": transferred,
             "missing": missing,
+            # Counts seen live on each server when Verify ran. They can differ
+            # from backed_up/transferred, which record what the run did earlier:
+            # mail arriving (or being deleted into Trash) in between shows up
+            # here and nowhere else.
+            "verify_old": v.get("old_count", 0),
+            "verify_new": v.get("new_count", 0),
+            "sample_missing": sample_missing,
+            "has_synthetic_missing": any(str(x).startswith("sha256-") for x in sample_missing),
             "verified": bool(v),
             "ok": bool(v) and missing == 0 and transferred >= backed and backed > 0,
         })
@@ -1371,11 +1380,19 @@ def download_report_pdf(request: HttpRequest, migration_id: int) -> HttpResponse
     ))
 
     if folder_rows:
+        story.append(Paragraph(
+            "<font color='#555555' size='8'>Backed up and Transferred show what the last run copied. "
+            "On source and On dest. show how many messages each server had when Verify last ran.</font>",
+            value,
+        ))
+        story.append(Spacer(1, 4))
         head = [
             Paragraph("<b>Source folder</b>", value),
             Paragraph("<b>Destination</b>", value),
             Paragraph("<b>Backed up</b>", value),
             Paragraph("<b>Transferred</b>", value),
+            Paragraph("<b>On source</b><br/><font size='7' color='#555555'>at verify</font>", value),
+            Paragraph("<b>On dest.</b><br/><font size='7' color='#555555'>at verify</font>", value),
             Paragraph("<b>Missing</b>", value),
             Paragraph("<b>Status</b>", value),
         ]
@@ -1394,17 +1411,21 @@ def download_report_pdf(request: HttpRequest, migration_id: int) -> HttpResponse
             else:
                 status_html = '<font color="#888888">Pending</font>'
             missing_txt = str(r["missing"]) if r["verified"] else "—"
+            verify_old_txt = str(r["verify_old"]) if r["verified"] else "—"
+            verify_new_txt = str(r["verify_new"]) if r["verified"] else "—"
             body.append([
                 Paragraph(f"<b>{r['src']}</b>", value),
                 Paragraph(f'<font color="#555555">{r["dst"]}</font>', value),
                 Paragraph(str(r["backed_up"]), value),
                 Paragraph(str(r["transferred"]), value),
+                Paragraph(verify_old_txt, value),
+                Paragraph(verify_new_txt, value),
                 Paragraph(missing_txt, value),
                 Paragraph(status_html, value),
             ])
         folders = Table(
             [head] + body,
-            colWidths=[None, None, 55, 55, 45, 70],
+            colWidths=[None, None, 50, 52, 46, 46, 42, 62],
             repeatRows=1,
         )
         folders.setStyle(TableStyle([
@@ -1413,7 +1434,7 @@ def download_report_pdf(request: HttpRequest, migration_id: int) -> HttpResponse
             ("LINEBELOW", (0, 0), (-1, 0), 0.5, BORDER),
             ("INNERGRID", (0, 1), (-1, -1), 0.25, RULE),
             ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-            ("ALIGN", (2, 0), (4, -1), "RIGHT"),
+            ("ALIGN", (2, 0), (6, -1), "RIGHT"),
             ("LEFTPADDING", (0, 0), (-1, -1), 6),
             ("RIGHTPADDING", (0, 0), (-1, -1), 6),
             ("TOPPADDING", (0, 0), (-1, -1), 6),
