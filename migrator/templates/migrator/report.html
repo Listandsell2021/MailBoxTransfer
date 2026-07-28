@@ -76,6 +76,13 @@
   .badge-status.backed-up   { background: var(--subtle); color: var(--muted); }
   .badge-status.in-progress { background: #fef3c7; color: #92400e; }
   .badge-status.not-started { background: var(--subtle); color: var(--muted); }
+
+  /* Sub-label under a column heading, e.g. "at verify" — keeps the two count
+     groups (run vs. live) distinguishable without widening the header. */
+  .col-sub {
+    display: block; font-weight: 400; font-size: 10px; color: var(--muted);
+    text-transform: none; letter-spacing: 0; margin-top: 1px;
+  }
 </style>
 
 <div class="page-head">
@@ -205,7 +212,13 @@
 
 <div class="card" style="padding: 0; overflow: hidden; margin-top: 18px;">
   <div style="padding: 14px 22px; border-bottom: 1px solid var(--card-border); display:flex; align-items:center; justify-content:space-between;">
-    <div style="font-weight: 600;">Per-folder breakdown</div>
+    <div>
+      <div style="font-weight: 600;">Per-folder breakdown</div>
+      <div class="muted" style="font-size:12px; margin-top:2px;">
+        <b>Backed up</b> and <b>Transferred</b> show what the last run copied.
+        <b>On source</b> and <b>On destination</b> show how many messages each server had when Verify last ran.
+      </div>
+    </div>
     <div class="muted" style="font-size:12.5px;">{{ folder_rows|length }} folder(s)</div>
   </div>
   {% if folder_rows %}
@@ -214,8 +227,10 @@
         <tr>
           <th>Source folder</th>
           <th>Destination</th>
-          <th style="text-align:right; width:110px;">Backed up</th>
-          <th style="text-align:right; width:110px;">Transferred</th>
+          <th style="text-align:right; width:100px;">Backed up</th>
+          <th style="text-align:right; width:100px;">Transferred</th>
+          <th style="text-align:right; width:100px;">On source<span class="col-sub">at verify</span></th>
+          <th style="text-align:right; width:110px;">On destination<span class="col-sub">at verify</span></th>
           <th style="text-align:right; width:90px;">Missing</th>
           <th style="width: 130px;">Status</th>
         </tr>
@@ -227,6 +242,8 @@
             <td class="muted">{{ r.dst }}</td>
             <td style="text-align:right; font-variant-numeric: tabular-nums;">{{ r.backed_up }}</td>
             <td style="text-align:right; font-variant-numeric: tabular-nums; {% if r.transferred < r.backed_up %}color: var(--muted);{% endif %}">{{ r.transferred }}</td>
+            <td style="text-align:right; font-variant-numeric: tabular-nums; {% if r.missing %}font-weight:600;{% else %}color: var(--muted);{% endif %}">{% if r.verified %}{{ r.verify_old }}{% else %}—{% endif %}</td>
+            <td style="text-align:right; font-variant-numeric: tabular-nums; {% if r.missing %}font-weight:600;{% else %}color: var(--muted);{% endif %}">{% if r.verified %}{{ r.verify_new }}{% else %}—{% endif %}</td>
             <td style="text-align:right; font-variant-numeric: tabular-nums; {% if r.missing %}color: var(--red); font-weight: 600;{% else %}color: var(--muted);{% endif %}">{% if r.verified %}{{ r.missing }}{% else %}—{% endif %}</td>
             <td>
               {% if r.ok %}
@@ -245,6 +262,32 @@
               {% endif %}
             </td>
           </tr>
+          {% if r.missing %}
+            <tr>
+              <td colspan="8" style="background:#fff7ed; padding: 12px 22px;">
+                <div style="font-size:13px; margin-bottom:6px;">
+                  <b>{{ r.missing }} message{{ r.missing|pluralize }}</b>
+                  {{ r.missing|pluralize:"is,are" }} still on the old server but not on the new one.
+                  They most likely arrived after the transfer finished. Run <b>Transfer</b> again and
+                  then <b>Verify</b> to copy them over.
+                </div>
+                <div class="muted" style="font-size:12.5px; margin-bottom:4px;">
+                  Missing message{{ r.missing|pluralize }}{% if r.missing > r.sample_missing|length %}
+                  (first {{ r.sample_missing|length }} of {{ r.missing }}){% endif %}:
+                </div>
+                <div style="font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:12px; word-break: break-all;">
+                  {% for mid in r.sample_missing %}<div>{{ mid }}</div>{% endfor %}
+                </div>
+                {% if r.has_synthetic_missing %}
+                  <div class="muted" style="font-size:12.5px; margin-top:6px;">
+                    Lines starting with <b>sha256-</b> are messages that carry no ID of their own, so we
+                    match them by their content. If the new server changed anything in the message while
+                    saving it, the match fails and it is listed here even though the copy is there.
+                  </div>
+                {% endif %}
+              </td>
+            </tr>
+          {% endif %}
         {% endfor %}
       </tbody>
     </table>
