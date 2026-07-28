@@ -104,6 +104,21 @@
         </div>
       {% endif %}
 
+      <div id="bulk-bar" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin: 0 0 12px;">
+        <span class="muted" style="font-size:13px;">Bulk action —</span>
+        <select id="bulk-scope" data-nosave="1" style="width:auto;">
+          <option value="unmatched">Folders that are not mapped</option>
+          <option value="all">All folders</option>
+        </select>
+        <span class="muted" style="font-size:13px;">set to</span>
+        <select id="bulk-action" data-nosave="1" style="width:auto;">
+          <option value="create">Create</option>
+          <option value="skip">Skip</option>
+        </select>
+        <button type="button" class="btn btn-sky" id="bulk-apply">Apply</button>
+        <span id="bulk-count" class="muted" style="font-size:13px;"></span>
+      </div>
+
       <div style="border: 1px solid var(--card-border); border-radius: var(--r); overflow: hidden;">
         <table id="mapping-table">
           <thead>
@@ -205,6 +220,7 @@ const btnTest = document.getElementById('btn-test');
 btnSave.disabled = true;
 btnSave.title = 'Click Test connection first to verify the saved credentials.';
 document.querySelectorAll('#cfg-form input, #cfg-form select').forEach(el => {
+  if (el.dataset.nosave) return;  // bulk-bar controls are not an edit by themselves
   el.addEventListener('input', () => { btnSave.disabled = false; btnSave.title = ''; });
   el.addEventListener('change', () => { btnSave.disabled = false; btnSave.title = ''; });
 });
@@ -242,7 +258,46 @@ function setRowsFromPayload(rows, newFolderNames) {
       <td>${pillFor(r.pairing_reason)}</td>`;
     body.appendChild(tr);
   }
+  refreshBulkCount();
 }
+
+// --- Bulk action bar -------------------------------------------------------
+// With 30+ folders, setting each dropdown by hand is the slow part. "Not
+// mapped" means any row whose action is not Map, i.e. everything auto-pairing
+// could not match to an existing destination folder.
+const bulkScope = document.getElementById('bulk-scope');
+const bulkAction = document.getElementById('bulk-action');
+const bulkCount = document.getElementById('bulk-count');
+
+function paintRow(tr) {
+  const sel = tr.querySelector('.action-sel');
+  tr.style.background = sel && sel.value === 'skip' ? '#fff7ed' : '';
+}
+function bulkTargets() {
+  return Array.from(document.querySelectorAll('#mapping-body tr')).filter(tr => {
+    if (!tr.dataset.old) return false;
+    if (bulkScope.value === 'all') return true;
+    return tr.querySelector('.action-sel').value !== 'map';
+  });
+}
+function refreshBulkCount() {
+  const n = bulkTargets().length;
+  bulkCount.textContent = n ? `${n} folder${n === 1 ? '' : 's'} will change` : 'no folders match';
+  document.getElementById('bulk-apply').disabled = n === 0;
+}
+document.getElementById('bulk-apply').addEventListener('click', () => {
+  const rows = bulkTargets();
+  rows.forEach(tr => { tr.querySelector('.action-sel').value = bulkAction.value; paintRow(tr); });
+  if (rows.length) { btnSave.disabled = false; btnSave.title = ''; }
+  refreshBulkCount();
+});
+bulkScope.addEventListener('change', refreshBulkCount);
+document.getElementById('mapping-body').addEventListener('change', e => {
+  if (!e.target.classList.contains('action-sel')) return;
+  paintRow(e.target.closest('tr'));
+  refreshBulkCount();
+});
+refreshBulkCount();
 
 btnTest.addEventListener('click', async () => {
   const status = document.getElementById('test-status');

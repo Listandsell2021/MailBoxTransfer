@@ -19,6 +19,7 @@ from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_POST
 
+from django.db import transaction
 from django.db.models import Count, Q
 
 from django_otp import devices_for_user, login as otp_login, user_has_device
@@ -688,8 +689,10 @@ def _provision_destination_folders(request: HttpRequest, migration: Migration) -
         ) as new:
             existing = {f.name for f in new.list_folders()}
             for m in creates:
-                dst = (m.new_folder or m.old_folder).strip()
-                if not dst:
+                # Keep verbatim - the transfer phase resolves the same way, and
+                # stripping here would create a folder it then fails to find.
+                dst = m.new_folder or m.old_folder
+                if not dst.strip():
                     continue
                 if dst in existing:
                     already.append(dst)
@@ -718,6 +721,15 @@ def _provision_destination_folders(request: HttpRequest, migration: Migration) -
         messages.error(request, "Failed to create: " + "; ".join(failed))
 
 
+def _mapping_key(folder: str) -> str:
+    """Key used to pair a payload row with an existing mapping row. MySQL's
+    unique index compares VARCHARs ignoring trailing spaces, so a folder named
+    'INBOX.Foo ' collides with 'INBOX.Foo' in the database even though the two
+    differ in Python. Mirror that here or the lookup misses and the insert blows
+    up with a duplicate-entry IntegrityError."""
+    return folder.rstrip()
+
+
 def _persist_mapping_payload(migration: Migration, raw: str) -> int:
     """Replace migration's mappings from a JSON payload. Returns row count saved.
     Empty/invalid payload is a no-op (returns 0)."""
@@ -730,34 +742,51 @@ def _persist_mapping_payload(migration: Migration, raw: str) -> int:
     if not isinstance(rows, list):
         return 0
 
-    by_old = {m.old_folder: m for m in migration.folder_mappings.all()}
-    keep_keys: set[str] = set()
+    by_old: dict[str, FolderMapping] = {}
+    for m in migration.folder_mappings.all():
+        # setdefault: any pre-existing near-duplicate rows lose and get deleted below.
+        by_old.setdefault(_mapping_key(m.old_folder), m)
+
+    keep_pks: set[int] = set()
+    seen_keys: set[str] = set()
+    to_update: list[FolderMapping] = []
     to_create: list[FolderMapping] = []
     for r in rows:
         if not isinstance(r, dict):
             continue
-        old = (r.get("old") or "").strip()
-        if not old:
+        # Keep the folder name verbatim - IMAP names may legitimately end in a
+        # space and must match the server's name exactly during transfer.
+        old = r.get("old") or ""
+        if not old.strip():
             continue
-        new = (r.get("new") or "").strip()
+        key = _mapping_key(old)
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        new = r.get("new") or ""
         action = r.get("action") or FolderMapping.ACTION_MAP
         if action not in {FolderMapping.ACTION_MAP, FolderMapping.ACTION_CREATE, FolderMapping.ACTION_SKIP}:
             action = FolderMapping.ACTION_MAP
-        keep_keys.add(old)
-        existing = by_old.get(old)
+        existing = by_old.get(key)
         if existing:
             existing.new_folder = new
             existing.action = action
             existing.pairing_reason = FolderMapping.PAIRING_MANUAL
-            existing.save()
+            keep_pks.add(existing.pk)
+            to_update.append(existing)
         else:
             to_create.append(FolderMapping(
                 migration=migration, old_folder=old, new_folder=new,
                 action=action, pairing_reason=FolderMapping.PAIRING_MANUAL,
             ))
-    if to_create:
-        FolderMapping.objects.bulk_create(to_create)
-    migration.folder_mappings.exclude(old_folder__in=keep_keys).delete()
+
+    with transaction.atomic():
+        # Delete before inserting so a row being replaced cannot collide.
+        migration.folder_mappings.exclude(pk__in=keep_pks).delete()
+        for m in to_update:
+            m.save(update_fields=["new_folder", "action", "pairing_reason"])
+        if to_create:
+            FolderMapping.objects.bulk_create(to_create)
     return len(rows)
 
 
