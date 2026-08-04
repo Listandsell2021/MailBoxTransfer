@@ -31,7 +31,7 @@
       <tbody>
       {% for m in migrations %}
         <tr>
-          <td><span class="muted" style="font-variant-numeric: tabular-nums;">{{ m.id }}</span></td>
+          <td><span class="muted" style="font-variant-numeric: tabular-nums;" title="Database ID {{ m.id }}">{{ forloop.counter }}</span></td>
           <td>
             <div style="display:flex; align-items:center; gap:10px;">
               <span style="width:28px; height:28px; border-radius:8px; background:linear-gradient(135deg,#6366f1,#a855f7); color:#fff; display:inline-flex; align-items:center; justify-content:center; font-size:12px; font-weight:700;">
@@ -110,7 +110,7 @@ document.querySelectorAll('.js-delete-form').forEach(form => {
     const label = form.dataset.migLabel || ('#' + id);
     const result = await mtSwal.confirm({
       title: 'Delete this migration?',
-      html: `<div><b style="color:#0f172a;">${escapeHtml(label)}</b> &middot; <span style="color:#94a3b8;">migration #${id}</span></div>
+      html: `<div><b style="color:#0f172a;">${escapeHtml(label)}</b></div>
              <div style="margin-top:10px;">This deletes the migration record and its backed-up messages from the database. There is no recovery — download the backup first if you still need it.</div>`,
       confirmText: 'Delete record',
       danger: true,

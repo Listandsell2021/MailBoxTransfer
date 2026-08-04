@@ -1,0 +1,345 @@
+{% extends "migrator/base.html" %}
+{% block title %}Import · {{ job.label }}{% endblock %}
+{% block content %}
+
+<style>
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 18px; }
+  .stat {
+    background: var(--card); border: 1px solid var(--card-border);
+    border-radius: var(--r); padding: 14px 16px; box-shadow: var(--card-shadow);
+  }
+  .stat .label {
+    font-size: 11px; font-weight: 600; color: var(--muted);
+    text-transform: uppercase; letter-spacing: .05em;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .stat .value {
+    font-size: 22px; font-weight: 700; color: var(--text);
+    margin-top: 4px; letter-spacing: -0.02em; font-variant-numeric: tabular-nums;
+  }
+  .stat .value.success { color: var(--green); }
+  .stat .value.running { color: var(--primary); }
+  .stat .value.failed  { color: var(--red); }
+  @media (max-width: 720px) { .stats { grid-template-columns: repeat(2, 1fr); } }
+
+  .map-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  .map-table th {
+    font-size: 11px; text-transform: uppercase; letter-spacing: .05em;
+    color: var(--muted); background: #fafbfc; padding: 10px 12px; text-align: left;
+    position: sticky; top: 0; z-index: 1;
+  }
+  .map-table td { padding: 8px 12px; border-bottom: 1px solid var(--card-border); vertical-align: middle; }
+  .map-table tr:last-child td { border-bottom: 0; }
+  .map-table input[type=text], .map-table select { padding: 6px 9px; font-size: 13px; }
+  .map-table tr.is-skip { opacity: .5; }
+  .map-wrap { max-height: 460px; overflow: auto; border: 1px solid var(--card-border); border-radius: var(--r); }
+  .src-name { font-weight: 500; word-break: break-all; }
+  .reason { font-size: 11px; color: var(--muted); }
+  .run-strip { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 16px 0 4px; }
+  .run-strip .prog-wrap { flex: 1; min-width: 220px; }
+</style>
+
+<div class="page-head">
+  <div>
+    <h1>{{ job.name|default:job.username }}</h1>
+    <p class="page-sub">
+      Importing <b>{{ job.source_label }}</b> into {{ job.username }} · {{ job.host }}:{{ job.port }}
+      · {% if job.use_ssl %}SSL/TLS{% else %}plain{% endif %}
+    </p>
+  </div>
+  <div class="actions">
+    <a class="btn btn-grey" href="{% url 'migrator:restores' %}">All imports</a>
+  </div>
+</div>
+
+<div class="stats">
+  <div class="stat">
+    <div class="label">
+      <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" style="color:var(--primary);"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+      Status
+    </div>
+    <div class="value {% if job.status == 'success' %}success{% elif job.status == 'running' %}running{% elif job.status == 'failed' %}failed{% endif %}" id="stat-status">
+      {% if job.status == 'pending' %}Not run{% else %}{{ job.get_status_display }}{% endif %}
+    </div>
+  </div>
+  <div class="stat">
+    <div class="label">
+      <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" style="color:var(--muted);"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+      In the archive
+    </div>
+    <div class="value">{{ job.total }}</div>
+  </div>
+  <div class="stat">
+    <div class="label">
+      <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" style="color:var(--green);"><polyline points="20 6 9 17 4 12"/></svg>
+      Imported
+    </div>
+    <div class="value" id="stat-imported">{{ job.imported }}</div>
+  </div>
+  <div class="stat">
+    <div class="label">
+      <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" style="color:var(--orange);"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+      Already there
+    </div>
+    <div class="value" id="stat-skipped">{{ job.skipped }}</div>
+  </div>
+</div>
+
+{% if not has_password %}
+  <div class="alert warn">
+    <svg class="icon-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+    <div>No password saved for the destination mailbox — this import can't run.</div>
+  </div>
+{% endif %}
+
+{% if job.status == 'failed' and job.error %}
+  <div class="alert error">
+    <svg class="icon-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+    <div>Last run failed: {{ job.error|truncatechars:300 }}</div>
+  </div>
+{% endif %}
+
+<div class="grid dash">
+  <div class="card">
+    <div style="display:flex; justify-content:space-between; align-items:flex-end; gap:14px; flex-wrap:wrap;">
+      <div>
+        <h2>Where each folder lands</h2>
+        <p class="lead" style="margin:0;">
+          {% if job.paired_at %}Paired against the destination {{ job.paired_at|date:"Y-m-d H:i" }}. Edit anything before importing.
+          {% else %}Connect to the destination to pair the archive's folders with the mailbox's own.{% endif %}
+        </p>
+      </div>
+      <button class="btn btn-grey" id="pair-btn">
+        <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+        {% if job.paired_at %}Re-pair folders{% else %}Connect &amp; pair folders{% endif %}
+      </button>
+    </div>
+
+    <div class="map-wrap" style="margin-top:14px;">
+      <table class="map-table">
+        <thead>
+          <tr>
+            <th>From the archive</th>
+            <th style="width:110px;">Messages</th>
+            <th>Destination folder</th>
+            <th style="width:130px;">Action</th>
+          </tr>
+        </thead>
+        <tbody id="map-body">
+        {% for f in folders %}
+          <tr class="js-row {% if f.action == 'skip' %}is-skip{% endif %}" data-source="{{ f.source_folder }}">
+            <td>
+              <div class="src-name">{{ f.source_folder }}</div>
+              {% if f.pairing_reason %}<div class="reason">matched by {{ f.pairing_reason }}</div>{% endif %}
+            </td>
+            <td style="font-variant-numeric: tabular-nums;">
+              {{ f.message_count }}
+              {% if f.imported %}<div class="reason">{{ f.imported }} imported</div>{% endif %}
+            </td>
+            <td><input type="text" class="js-dest" value="{{ f.dest_folder }}" placeholder="e.g. INBOX.Archiv"></td>
+            <td>
+              <select class="js-action">
+                <option value="map" {% if f.action == 'map' %}selected{% endif %}>Import</option>
+                <option value="create" {% if f.action == 'create' %}selected{% endif %}>Create + import</option>
+                <option value="skip" {% if f.action == 'skip' %}selected{% endif %}>Skip</option>
+              </select>
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="run-strip">
+      <button class="btn {% if job.status == 'running' %}btn-grey{% else %}btn-sky{% endif %}" id="run-btn"
+              {% if job.status == 'running' or not has_password %}disabled{% endif %}>
+        {% if job.status == 'running' %}Importing…{% elif job.status == 'success' %}Run again{% else %}Start import{% endif %}
+      </button>
+      <div class="prog-wrap">
+        <div class="progress {% if job.status == 'success' %}success{% endif %}">
+          <span style="width:{% if job.total %}{% widthratio job.processed job.total 100 %}{% else %}0{% endif %}%"></span>
+        </div>
+        <div style="display:flex; justify-content:space-between; font-size:12px; color:var(--muted); font-variant-numeric:tabular-nums;">
+          <span id="prog-text">
+            {% if job.total %}{{ job.processed }} / {{ job.total }} messages{% else %}—{% endif %}
+            {% if duration %} · {{ duration }}{% endif %}
+          </span>
+          <span id="prog-pct">{% if job.total %}{% widthratio job.processed job.total 100 %}%{% else %}—{% endif %}</span>
+        </div>
+      </div>
+    </div>
+
+    <p class="muted" style="margin: 12px 0 0; font-size: 12.5px;">
+      {{ active_messages }} message(s) in {{ active_count }} folder(s) are set to import.
+      A message whose Message-ID is already in the destination folder is skipped, so running this twice
+      won't create duplicates. Nothing in the destination mailbox is ever deleted or overwritten.
+    </p>
+  </div>
+
+  <div class="card" style="padding: 0; display:flex; flex-direction:column;">
+    <div style="display:flex; justify-content:space-between; align-items:center; padding: 14px 18px; border-bottom: 1px solid var(--card-border);">
+      <div style="display:flex; align-items:center; gap:8px;">
+        <span style="width:8px; height:8px; border-radius:50%; background:#10b981; box-shadow:0 0 0 3px rgba(16,185,129,.2);"></span>
+        <h2 style="margin:0; font-size:14px; font-weight:600;">Live log</h2>
+      </div>
+      <button id="log-clear" class="btn btn-grey" style="padding:5px 10px; font-size:12px;">Clear</button>
+    </div>
+    <div id="log" class="log" aria-live="polite" style="border-radius: 0 0 var(--r-lg) var(--r-lg); border-left:0; border-right:0; border-bottom:0; height: 560px;"></div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const JOB_ID = {{ job.id }};
+const csrf = "{{ csrf_token }}";
+const logEl = document.getElementById('log');
+
+function escapeText(s) { return String(s ?? '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+function append(level, message, atTs) {
+  const div = document.createElement('div');
+  div.className = 'line ' + (level || 'info');
+  const stamp = (atTs ? new Date(atTs * 1000) : new Date()).toTimeString().slice(0, 8);
+  div.innerHTML = `<span class="ts">[${stamp}]</span> <span class="tag">${(level || 'info').toUpperCase()}</span> ${escapeText(message)}`;
+  logEl.appendChild(div);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+document.getElementById('log-clear').addEventListener('click', () => logEl.innerHTML = '');
+
+function applyProgress(data) {
+  const bar = document.querySelector('.progress > span');
+  if (!bar) return;
+  const pct = data.total ? (100 * data.processed / data.total) : 0;
+  bar.style.width = pct + '%';
+  document.getElementById('prog-pct').textContent = data.total ? Math.round(pct) + '%' : '—';
+  document.getElementById('prog-text').textContent =
+    `${(data.processed || 0).toLocaleString()} / ${(data.total || 0).toLocaleString()} messages`
+    + (data.folder ? ` · ${data.folder}` : '');
+}
+
+const runBtn = document.getElementById('run-btn');
+function setRunBtn(label, disabled, klass) {
+  runBtn.textContent = label;
+  runBtn.disabled = !!disabled;
+  if (klass) {
+    runBtn.classList.remove('btn-sky', 'btn-grey');
+    runBtn.classList.add(klass);
+  }
+}
+
+let reloadScheduled = false;
+function handlePhase(e) {
+  const data = JSON.parse(e.data);
+  const el = document.getElementById('stat-status');
+  const labels = {running: 'Running', success: 'Success', failed: 'Failed'};
+  el.textContent = labels[data.status] || data.status;
+  el.classList.remove('success', 'running', 'failed');
+  if (data.status === 'success') el.classList.add('success');
+  else if (data.status === 'running') el.classList.add('running');
+  else if (data.status === 'failed') el.classList.add('failed');
+
+  if (data.status === 'running') {
+    setRunBtn('Importing…', true, 'btn-grey');
+  } else if (!reloadScheduled) {
+    reloadScheduled = true;
+    setTimeout(() => location.reload(), 1500);
+  }
+}
+
+let es = null;
+function startStream(sinceSeq) {
+  es = new EventSource(`/restores/${JOB_ID}/stream/?since=${sinceSeq}`);
+  es.addEventListener('log', e => {
+    const data = JSON.parse(e.data);
+    append(data.level || 'info', data.message || '');
+  });
+  es.addEventListener('progress', e => applyProgress(JSON.parse(e.data)));
+  es.addEventListener('phase', handlePhase);
+}
+fetch(`/restores/${JOB_ID}/log-snapshot/`, {credentials: 'same-origin'})
+  .then(r => r.json())
+  .then(snap => {
+    for (const ev of (snap.events || [])) {
+      if (ev.type === 'log') append(ev.level || 'info', ev.message || '', ev.ts);
+      else if (ev.type === 'progress') applyProgress(ev);
+    }
+    startStream(snap.max_seq || 0);
+  })
+  .catch(() => startStream(0));
+
+// ----- Mapping table -----
+function collectMapping() {
+  return Array.from(document.querySelectorAll('.js-row')).map(tr => ({
+    source: tr.dataset.source,
+    dest: tr.querySelector('.js-dest').value.trim(),
+    action: tr.querySelector('.js-action').value,
+  }));
+}
+let saveTimer = null;
+async function saveMapping() {
+  const body = new URLSearchParams({payload: JSON.stringify(collectMapping())});
+  const r = await fetch(`/restores/${JOB_ID}/save-mapping/`, {
+    method: 'POST', headers: {'X-CSRFToken': csrf}, body,
+  });
+  if (!r.ok) mtSwal.error('Could not save the folder mapping.');
+}
+function queueSave() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(saveMapping, 400);
+}
+document.querySelectorAll('.js-dest').forEach(el => el.addEventListener('input', queueSave));
+document.querySelectorAll('.js-action').forEach(el => el.addEventListener('change', (e) => {
+  e.target.closest('tr').classList.toggle('is-skip', e.target.value === 'skip');
+  queueSave();
+}));
+
+// ----- Pair against the destination -----
+document.getElementById('pair-btn').addEventListener('click', async (e) => {
+  const btn = e.currentTarget;
+  const original = btn.innerHTML;
+  btn.disabled = true;
+  btn.textContent = 'Connecting…';
+  try {
+    const r = await fetch(`/restores/${JOB_ID}/pair/`, {
+      method: 'POST', headers: {'X-CSRFToken': csrf},
+    });
+    const data = await r.json();
+    if (!data.ok) {
+      mtSwal.error(data.error || 'Could not connect', 'Connection failed');
+      btn.disabled = false; btn.innerHTML = original;
+      return;
+    }
+    mtSwal.toast(`Paired ${data.rows.length} folder(s)`);
+    setTimeout(() => location.reload(), 700);
+  } catch (err) {
+    mtSwal.error(String(err), 'Connection failed');
+    btn.disabled = false; btn.innerHTML = original;
+  }
+});
+
+// ----- Start -----
+runBtn.addEventListener('click', async () => {
+  const confirmed = await mtSwal.confirm({
+    title: 'Import into this mailbox?',
+    html: `<div>{{ active_messages }} message(s) will be added to <b>{{ job.username|escapejs }}</b>.</div>
+           <div style="margin-top:10px;">Nothing in the destination is deleted — messages already there are skipped.</div>`,
+    confirmText: 'Start import',
+  });
+  if (!confirmed.isConfirmed) return;
+
+  await saveMapping();   // flush any pending edits before the run reads them
+  setRunBtn('Starting…', true);
+  const r = await fetch(`/restores/${JOB_ID}/start/`, {
+    method: 'POST', headers: {'X-CSRFToken': csrf},
+  });
+  const data = await r.json();
+  if (!data.ok) {
+    mtSwal.error(data.error || 'Failed to start', 'Could not start the import');
+    setRunBtn('Start import', false, 'btn-sky');
+  } else {
+    setRunBtn('Importing…', true, 'btn-grey');
+  }
+});
+</script>
+{% endblock %}

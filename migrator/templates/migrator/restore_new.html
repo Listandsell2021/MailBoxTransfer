@@ -1,0 +1,246 @@
+{% extends "migrator/base.html" %}
+{% block title %}New import · Mailbox Transfer{% endblock %}
+{% block content %}
+<style>
+  .pw-wrap { position: relative; }
+  .pw-wrap input { padding-right: 40px !important; }
+  .pw-toggle {
+    position: absolute; top: 50%; right: 6px; transform: translateY(-50%);
+    background: transparent; border: 0; padding: 6px; cursor: pointer;
+    color: var(--muted); display: inline-flex; align-items: center; border-radius: 4px;
+  }
+  .pw-toggle:hover { color: var(--text, #111); background: rgba(0,0,0,0.04); }
+  .pw-toggle svg { width: 18px; height: 18px; display: block; }
+  .pw-toggle svg[hidden] { display: none; }
+
+  /* Source on the left, destination on the right, so the whole form fits on
+     one screen instead of running off the bottom. */
+  .new-grid {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 22px; align-items: start;
+  }
+  @media (max-width: 980px) { .new-grid { grid-template-columns: 1fr; gap: 18px; } }
+  .new-grid .col { min-width: 0; }
+
+  .source-opt {
+    display: block; padding: 14px 16px; margin-bottom: 10px;
+    border: 1px solid var(--card-border); border-radius: var(--r);
+    background: #fff; cursor: pointer; transition: all .15s;
+  }
+  .source-opt:hover { border-color: #c7d2fe; background: #fafbff; }
+  .source-opt.is-active { border-color: var(--primary); background: #f5f3ff; }
+  .source-opt .head {
+    display: flex; align-items: center; gap: 10px;
+    font-weight: 600; font-size: 14px;
+  }
+  /* A <span> is inline, so a top margin would be ignored — the body has to be
+     a block for the 26px indent to line up under the radio's label text. */
+  .source-opt .body { display: block; margin: 12px 0 0 26px; }
+  .source-opt .hint {
+    color: var(--muted); font-weight: 400; font-size: 12.5px;
+    margin-left: auto; white-space: nowrap;
+  }
+  .source-opt input[type=radio] {
+    accent-color: var(--primary); width: 16px; height: 16px;
+    margin: 0; flex-shrink: 0;
+  }
+
+  /* Make the file picker sit on the same grid as the selects and text inputs:
+     same height, same radius, and a "Choose file" button styled like .btn-grey. */
+  .source-opt input[type=file] {
+    display: block; width: 100%;
+    padding: 6px 8px; background: #fff; color: var(--text-secondary);
+    border: 1px dashed #cbd5e1; border-radius: var(--r-sm);
+    font: inherit; font-size: 13px; line-height: 1.6; cursor: pointer;
+    transition: border-color .15s, background .15s;
+  }
+  .source-opt input[type=file]:hover { border-color: var(--primary); background: #fdfdff; }
+  .source-opt input[type=file]:focus {
+    outline: none; border-style: solid; border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(79,70,229,.12);
+  }
+  .source-opt input[type=file]::file-selector-button {
+    margin: 0 12px 0 0; padding: 6px 14px;
+    background: #ffffff; color: var(--text);
+    border: 1px solid var(--card-border); border-radius: var(--r-sm);
+    font: inherit; font-size: 13px; font-weight: 600; line-height: 1.2;
+    cursor: pointer; transition: all .15s;
+    box-shadow: 0 1px 2px rgba(15,23,42,.04);
+  }
+  .source-opt input[type=file]::file-selector-button:hover {
+    background: var(--subtle); border-color: #d1d5db;
+  }
+  .source-opt .file-hint { margin-top: 8px; }
+  @media (max-width: 560px) {
+    /* The ".zip · .mbox · .eml" tag would push the option title off-screen. */
+    .source-opt .hint { display: none; }
+    .source-opt .body { margin-left: 0; }
+  }
+</style>
+
+<div class="page-head">
+  <div>
+    <h1>New import</h1>
+    <p class="page-sub">Choose an archive and the mailbox to put it into. Messages are added with IMAP APPEND — nothing on the destination is deleted or overwritten.</p>
+  </div>
+  <div class="actions">
+    <a class="btn btn-grey" href="{% url 'migrator:restores' %}">Cancel</a>
+  </div>
+</div>
+
+<div class="card" style="max-width: 1120px;">
+  <form method="post" enctype="multipart/form-data" novalidate>
+    {% csrf_token %}
+
+    {% if form.non_field_errors %}
+      <div class="alert error">
+        <svg class="icon-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        <div>{{ form.non_field_errors|join:" · " }}</div>
+      </div>
+    {% elif form.errors %}
+      <div class="alert error">
+        <svg class="icon-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        <div>Please correct the highlighted fields.</div>
+      </div>
+    {% endif %}
+
+    <div class="new-grid">
+    <div class="col">
+    <div class="field {% if form.name.errors %}has-error{% endif %}">
+      <label for="id_name">Label <span style="color:var(--muted); font-weight:400;">(optional)</span></label>
+      {{ form.name }}
+      {% if form.name.errors %}<div class="field-error">{{ form.name.errors|join:" · " }}</div>{% endif %}
+    </div>
+
+    <h3 style="margin-top:16px;">Where the messages come from</h3>
+    {% if form.source_kind.errors %}<div class="field-error">{{ form.source_kind.errors|join:" · " }}</div>{% endif %}
+
+    <label class="source-opt" data-kind="upload" id="opt-upload">
+      <span class="head">
+        <input type="radio" name="source_kind" value="upload" checked>
+        Upload an archive
+        <span class="hint">.zip · .mbox · .eml</span>
+      </span>
+      <span class="body">
+        {{ form.archive }}
+        <div class="muted file-hint" style="font-size:12.5px;">
+          A ZIP downloaded from the Backups page, any ZIP containing <code>.eml</code> or <code>.mbox</code> files,
+          or one <code>.eml</code>/<code>.mbox</code> on its own. Up to 512&nbsp;MB.
+        </div>
+        {% if form.archive.errors %}<div class="field-error">{{ form.archive.errors|join:" · " }}</div>{% endif %}
+      </span>
+    </label>
+
+    <label class="source-opt" data-kind="backup" id="opt-backup">
+      <span class="head">
+        <input type="radio" name="source_kind" value="backup" {% if not backups_available %}disabled{% endif %}>
+        A backup already in this app
+        <span class="hint">no download needed</span>
+      </span>
+      <span class="body">
+        {% if backups_available %}
+          {{ form.source_backup }}
+          {% if form.source_backup.errors %}<div class="field-error">{{ form.source_backup.errors|join:" · " }}</div>{% endif %}
+        {% else %}
+          <div class="muted" style="font-size:12.5px;">
+            You have no archived backups yet — run one on the
+            <a href="{% url 'migrator:backups' %}" style="color:var(--link);">Backups</a> page first.
+          </div>
+        {% endif %}
+      </span>
+    </label>
+    </div>
+
+    <div class="col">
+    <div class="mailbox new" style="height:100%;">
+      <h3><span class="dot"></span> Destination mailbox</h3>
+
+      <div class="field {% if form.host.errors %}has-error{% endif %}">
+        <label for="id_host">IMAP host</label>{{ form.host }}
+        {% if form.host.errors %}<div class="field-error">{{ form.host.errors|join:" · " }}</div>{% endif %}
+      </div>
+
+      <div class="row">
+        <div class="field {% if form.port.errors %}has-error{% endif %}" style="max-width: 130px;">
+          <label for="id_port">Port</label>{{ form.port }}
+          {% if form.port.errors %}<div class="field-error">{{ form.port.errors|join:" · " }}</div>{% endif %}
+        </div>
+        <div class="field {% if form.security.errors %}has-error{% endif %}">
+          <label for="id_security">Connection security</label>{{ form.security }}
+          {% if form.security.errors %}<div class="field-error">{{ form.security.errors|join:" · " }}</div>{% endif %}
+        </div>
+      </div>
+
+      <div class="field {% if form.username.errors %}has-error{% endif %}">
+        <label for="id_username">Email / username</label>{{ form.username }}
+        {% if form.username.errors %}<div class="field-error">{{ form.username.errors|join:" · " }}</div>{% endif %}
+      </div>
+
+      <div class="field {% if form.password.errors %}has-error{% endif %}">
+        <label for="id_password">Password <span style="color: var(--muted); font-weight: 400;">· stored encrypted</span></label>
+        <div class="pw-wrap">
+          {{ form.password }}
+          <button type="button" class="pw-toggle" data-target="id_password" aria-label="Show password" tabindex="-1">
+            <svg class="pw-eye"     viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+            <svg class="pw-eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" hidden><path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a19.45 19.45 0 0 1 5.17-5.93"/><path d="M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 8 11 8a19.46 19.46 0 0 1-3.17 4.19"/><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+          </button>
+        </div>
+        {% if form.password.errors %}<div class="field-error">{{ form.password.errors|join:" · " }}</div>{% endif %}
+      </div>
+    </div>
+    </div>
+    </div>
+
+    <div style="margin-top:18px; padding-top:16px; border-top:1px solid var(--card-border); display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+      <button type="submit" class="btn btn-primary" id="submit-btn">
+        <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        Read archive and continue
+      </button>
+      <span class="muted" style="font-size:13px;">Next: check where each folder lands, then import.</span>
+    </div>
+  </form>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.querySelectorAll('.pw-toggle').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const input = document.getElementById(btn.dataset.target);
+    if (!input) return;
+    const show = input.type === 'password';
+    input.type = show ? 'text' : 'password';
+    btn.querySelector('.pw-eye').hidden = show;
+    btn.querySelector('.pw-eye-off').hidden = !show;
+  });
+});
+
+// Highlight whichever source is selected.
+const radios = document.querySelectorAll('input[name="source_kind"]');
+function syncSource() {
+  document.querySelectorAll('.source-opt').forEach(opt => {
+    const radio = opt.querySelector('input[type=radio]');
+    opt.classList.toggle('is-active', radio && radio.checked);
+  });
+}
+radios.forEach(r => r.addEventListener('change', syncSource));
+// Picking a file or a backup selects its option, so the two can't disagree.
+document.getElementById('id_archive')?.addEventListener('change', () => {
+  document.querySelector('input[name="source_kind"][value="upload"]').checked = true;
+  syncSource();
+});
+document.getElementById('id_source_backup')?.addEventListener('change', () => {
+  document.querySelector('input[name="source_kind"][value="backup"]').checked = true;
+  syncSource();
+});
+syncSource();
+
+// Reading a large archive takes a while — say so instead of looking frozen.
+document.querySelector('form').addEventListener('submit', () => {
+  const btn = document.getElementById('submit-btn');
+  btn.disabled = true;
+  btn.textContent = 'Reading archive…';
+});
+</script>
+{% endblock %}

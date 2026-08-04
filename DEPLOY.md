@@ -156,7 +156,33 @@ git pull
 docker compose up -d --build
 ```
 
-The entrypoint runs migrations + `collectstatic` on every container start.
+The `web` entrypoint runs migrations + `collectstatic` on every container start,
+so schema changes need no separate step. `up -d` also creates any service that is
+new in `docker-compose.yml` (that's how the `scheduler` container first appears).
+
+**Only when `docker/nginx/conf.d/app.conf` changed in the pull.** The file is
+mounted read-only, so nginx keeps serving the old copy until told otherwise:
+
+```bash
+docker compose exec nginx nginx -t && docker compose exec nginx nginx -s reload
+```
+
+**Check it came up:**
+
+```bash
+docker compose ps                       # web, scheduler, nginx, certbot all Up
+docker compose logs --tail=30 web       # migrations applied, gunicorn started
+docker compose logs --tail=10 scheduler # "Backup scheduler started (every 60s...)"
+```
+
+The Dashboard also shows a warning banner on any mailbox with a schedule if the
+scheduler hasn't checked in for 15 minutes — a quick way to confirm from the UI.
+
+**Occasionally**, so old image layers don't fill the disk:
+
+```bash
+docker image prune -f
+```
 
 Roll back:
 
@@ -171,6 +197,7 @@ docker compose up -d --build
 
 ```bash
 docker compose logs -f web        # Django/gunicorn
+docker compose logs -f scheduler  # scheduled mailbox backups
 docker compose logs -f nginx      # nginx access/error
 docker compose logs -f certbot    # cert renewals
 
@@ -192,6 +219,26 @@ Verify renewal works (dry run):
 ```bash
 docker compose exec certbot certbot renew --dry-run
 ```
+
+---
+
+## Scheduled mailbox backups
+
+The `scheduler` service runs `manage.py run_scheduled_backups --loop`, waking
+every 60 seconds to run any backup job whose schedule is due. Users set the
+schedule per mailbox on the **Backups** page; times are in `TIME_ZONE`
+(Europe/Berlin). It runs jobs one at a time, and holds a MySQL `GET_LOCK` so a
+second scheduler container can never double-run the same job.
+
+```bash
+docker compose up -d scheduler          # start it (part of `docker compose up -d`)
+docker compose logs -f scheduler        # watch runs
+docker compose exec web python manage.py run_scheduled_backups          # one pass, manually
+docker compose exec web python manage.py run_scheduled_backups --job 3  # force one job now
+```
+
+If the container isn't running, the Backups page shows a warning banner on any
+mailbox that has a schedule set — a missed backup is never silent.
 
 ---
 

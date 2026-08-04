@@ -18,6 +18,7 @@ from django.utils import timezone
 
 from .imap_client import (
     ImapClient,
+    collect_dedup_ids,
     parse_message_id,
     synthetic_message_id,
 )
@@ -163,26 +164,10 @@ def _active_mappings(migration: Migration) -> list[FolderMapping]:
 def _collect_verify_ids(client: ImapClient) -> set[str]:
     """Dedup-id set for the currently-selected folder.
 
-    Prefers the Message-ID header; for messages without one, falls back to a
-    sha256 of the raw RFC822 — same key transfer uses, so headerless messages
-    still pair up across old and new.
+    Lives in imap_client now so backup, transfer, verify and restore can't
+    drift apart on how a headerless message is identified.
     """
-    uid_to_mid = client.fetch_message_ids() or {}
-    ids: set[str] = set()
-    headerless: list[int] = []
-    for uid, mid in uid_to_mid.items():
-        mid = (mid or "").strip()
-        if mid:
-            ids.add(mid)
-        else:
-            headerless.append(uid)
-    for uid in headerless:
-        try:
-            raw, _flags, _idate = client.fetch_message(uid)
-        except Exception:
-            continue
-        ids.add(synthetic_message_id(raw))
-    return ids
+    return collect_dedup_ids(client)
 
 
 # ---------------------------------------------------------------------------

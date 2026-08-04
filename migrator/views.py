@@ -28,9 +28,14 @@ from django_otp.decorators import otp_required
 from django.contrib.auth import update_session_auth_hash
 from django.contrib.auth.forms import PasswordChangeForm
 
-from .forms import MigrationForm, ProfileForm
+from .forms import (
+    BackupJobForm, BackupScheduleForm, MigrationForm, ProfileForm, RestoreJobForm,
+)
 from .imap_client import ImapClient, auto_pair_folders
-from .models import AccessEvent, FolderMapping, Migration, MessageRecord, PhaseRun, UserProfile, VerificationReport
+from .models import (
+    AccessEvent, BackupJob, BackupMessage, FolderMapping, Migration,
+    MessageRecord, PhaseRun, RestoreJob, UserProfile, VerificationReport,
+)
 from .phases import CleanupGate, launch_phase
 from .runtime import STATE, Credentials, load_credentials
 from .crypto import encrypt
@@ -294,7 +299,45 @@ def home(request: HttpRequest) -> HttpResponse:
     storage_bytes = msg_qs.aggregate(total=Sum("size"))["total"] or 0
     storage_display = _humanize_bytes(storage_bytes)
 
+    # Backups and restores are always the signed-in user's own — never
+    # system-wide, even for an admin, because they hold mail content that only
+    # the owner may see.
+    backup_jobs = BackupJob.objects.filter(owner=request.user)
+    backup_msg_qs = BackupMessage.objects.filter(job__in=backup_jobs)
+    backup_agg = backup_msg_qs.aggregate(n=Count("id"), size=Sum("size"))
+    scheduled_jobs = backup_jobs.exclude(schedule=BackupJob.SCHEDULE_OFF)
+    next_backup = (
+        scheduled_jobs.filter(next_run_at__isnull=False).order_by("next_run_at").first()
+    )
+    recent_backups = list(
+        backup_jobs.order_by("-finished_at", "-created_at")[:5]
+    )
+    for job in recent_backups:
+        job.message_count = backup_msg_qs.filter(job=job).count()
+
+    restore_jobs = _owned_restore_jobs(request.user)
+    restore_agg = restore_jobs.aggregate(imported=Sum("imported"), runs=Count("id"))
+    recent_restores = list(
+        restore_jobs.select_related("source_backup")
+        .order_by("-finished_at", "-created_at")[:5]
+    )
+
+    from .scheduler import health
+    scheduler_health = health() if scheduled_jobs.exists() else None
+
     return render(request, "migrator/home.html", {
+        "backup_job_count": backup_jobs.count(),
+        "backup_message_count": backup_agg["n"] or 0,
+        "backup_storage_display": _humanize_bytes(backup_agg["size"] or 0),
+        "scheduled_backup_count": scheduled_jobs.count(),
+        "next_backup": next_backup,
+        "recent_backups": recent_backups,
+        "failed_backup_count": backup_jobs.filter(
+            status=BackupJob.STATUS_FAILED).count(),
+        "restore_run_count": restore_agg["runs"] or 0,
+        "restore_imported_count": restore_agg["imported"] or 0,
+        "recent_restores": recent_restores,
+        "scheduler": scheduler_health,
         "nav_active": "home",
         "is_admin_view": is_admin,
         "total_migrations": total_migrations,
@@ -909,7 +952,11 @@ def log_snapshot(request: HttpRequest, migration_id: int) -> JsonResponse:
 @csrf_exempt
 def sse_stream(request: HttpRequest, migration_id: int) -> StreamingHttpResponse:
     migration = get_object_or_404(_owned_migrations(request.user), pk=migration_id)
-    hub = STATE.hub(migration.pk)
+    return _sse_response(request, STATE.hub(migration.pk))
+
+
+def _sse_response(request: HttpRequest, hub) -> StreamingHttpResponse:
+    """Server-sent-events feed for one Hub, resuming from ?since / Last-Event-ID."""
     raw_since = request.META.get("HTTP_LAST_EVENT_ID") or request.GET.get("since") or "0"
     try:
         since = int(raw_since)
@@ -1476,6 +1523,488 @@ def delete_migration(request: HttpRequest, migration_id: int) -> HttpResponse:
     migration.delete()
     STATE.set_credentials(migration_id, Credentials())
     return redirect("migrator:index")
+
+
+# ---------------------------------------------------------------------------
+# Backups — standalone, backup-only mailbox archives (available to every user)
+#
+# A BackupJob has no destination server and never writes to a mailbox. Jobs are
+# private to their owner: mail content is never exposed to another account,
+# admins included.
+# ---------------------------------------------------------------------------
+
+def _owned_backup_jobs(user):
+    if not (user and user.is_authenticated):
+        return BackupJob.objects.none()
+    return BackupJob.objects.filter(owner=user)
+
+
+@otp_required(login_url="migrator:login")
+def backups(request: HttpRequest) -> HttpResponse:
+    """List the current user's backup jobs with their size on disk."""
+    jobs = list(_owned_backup_jobs(request.user))
+
+    from django.db.models import Sum
+    stored_by_job: dict[int, dict] = {}
+    if jobs:
+        for row in (
+            BackupMessage.objects.filter(job__in=jobs)
+            .values("job")
+            .annotate(n=Count("id"), size=Sum("size"), atts=Sum("attachment_count"))
+        ):
+            stored_by_job[row["job"]] = row
+    for job in jobs:
+        row = stored_by_job.get(job.id, {})
+        job.message_count = row.get("n", 0)
+        job.attachment_count = row.get("atts") or 0
+        job.storage_display = _humanize_bytes(row.get("size") or 0)
+
+    from .scheduler import health
+    return render(request, "migrator/backups.html", {
+        "jobs": jobs,
+        "scheduler": health(),
+        "any_scheduled": any(j.schedule_is_on for j in jobs),
+        "nav_active": "backups",
+    })
+
+
+@otp_required(login_url="migrator:login")
+def backup_config(request: HttpRequest, job_id: int | None = None) -> HttpResponse:
+    """Create or edit a backup job's mailbox connection."""
+    job = get_object_or_404(_owned_backup_jobs(request.user), pk=job_id) if job_id else None
+
+    if request.method == "POST":
+        form = BackupJobForm(request.POST, instance=job)
+        if form.is_valid():
+            obj = form.save(commit=False)
+            if obj.owner_id is None:
+                obj.owner = request.user
+            obj.save()
+            password = form.cleaned_data.get("password") or ""
+            if password:
+                obj.password_enc = encrypt(password)
+                obj.save(update_fields=["password_enc"])
+            messages.success(request, "Mailbox saved.")
+            return redirect("migrator:backup_detail", job_id=obj.pk)
+    else:
+        form = BackupJobForm(instance=job)
+
+    return render(request, "migrator/backup_config.html", {
+        "form": form,
+        "job": job,
+        "nav_active": "backups",
+    })
+
+
+@otp_required(login_url="migrator:login")
+def backup_detail(request: HttpRequest, job_id: int) -> HttpResponse:
+    """Folder picker, run controls, live log and download for one backup job."""
+    from .backup import job_stats
+
+    job = get_object_or_404(_owned_backup_jobs(request.user), pk=job_id)
+
+    from django.db.models import Sum
+    stored_by_folder = {
+        row["folder"]: row
+        for row in (
+            BackupMessage.objects.filter(job=job)
+            .values("folder")
+            .annotate(n=Count("id"), size=Sum("size"), atts=Sum("attachment_count"))
+        )
+    }
+    folders = []
+    for f in job.folders.all():
+        row = stored_by_folder.get(f.name, {})
+        folders.append({
+            "id": f.id,
+            "name": f.name,
+            "selected": f.selected,
+            "server_count": f.server_count,
+            "stored": row.get("n", 0),
+            "attachments": row.get("atts") or 0,
+            "size_display": _humanize_bytes(row.get("size") or 0),
+        })
+
+    stats = job_stats(job)
+    stats["size_display"] = _humanize_bytes(stats["bytes"])
+
+    from .scheduler import health
+    return render(request, "migrator/backup_detail.html", {
+        "job": job,
+        "folders": folders,
+        "selected_count": sum(1 for f in folders if f["selected"]),
+        "stats": stats,
+        "has_password": bool(bytes(job.password_enc)),
+        "duration": _duration_str(job.started_at, job.finished_at),
+        "schedule_form": BackupScheduleForm(instance=job),
+        "scheduler": health(),
+        "tz_name": timezone.get_current_timezone_name(),
+        "nav_active": "backups",
+    })
+
+
+@otp_required(login_url="migrator:login")
+@require_POST
+def backup_schedule(request: HttpRequest, job_id: int) -> HttpResponse:
+    """Save how often this mailbox backs itself up, and recompute its next run."""
+    from .scheduler import reschedule
+
+    job = get_object_or_404(_owned_backup_jobs(request.user), pk=job_id)
+    form = BackupScheduleForm(request.POST, instance=job)
+    if not form.is_valid():
+        messages.error(request, "Could not save the schedule — check the fields.")
+        return redirect("migrator:backup_detail", job_id=job.pk)
+
+    job = form.save()
+    next_run = reschedule(job)
+    if not job.schedule_is_on:
+        messages.success(request, "Automatic backups turned off. You can still run it by hand.")
+    elif next_run:
+        messages.success(
+            request,
+            f"{job.schedule_description()}. Next run "
+            f"{timezone.localtime(next_run):%Y-%m-%d %H:%M}.",
+        )
+    return redirect("migrator:backup_detail", job_id=job.pk)
+
+
+@otp_required(login_url="migrator:login")
+@require_POST
+def backup_refresh_folders(request: HttpRequest, job_id: int) -> JsonResponse:
+    """Connect to the mailbox and (re)discover its folder list."""
+    from .backup import refresh_folders
+
+    job = get_object_or_404(_owned_backup_jobs(request.user), pk=job_id)
+    try:
+        rows = refresh_folders(job)
+    except Exception as exc:
+        return JsonResponse({"ok": False, "error": str(exc)}, status=400)
+    return JsonResponse({
+        "ok": True,
+        "count": len(rows),
+        "folders": [
+            {"name": f.name, "selected": f.selected, "server_count": f.server_count}
+            for f in rows
+        ],
+    })
+
+
+@otp_required(login_url="migrator:login")
+@require_POST
+def backup_save_folders(request: HttpRequest, job_id: int) -> JsonResponse:
+    """Persist which folders the next run should download."""
+    job = get_object_or_404(_owned_backup_jobs(request.user), pk=job_id)
+    try:
+        names = json.loads(request.POST.get("selected", "[]"))
+    except json.JSONDecodeError:
+        return JsonResponse({"ok": False, "error": "Bad payload"}, status=400)
+    if not isinstance(names, list):
+        return JsonResponse({"ok": False, "error": "Bad payload"}, status=400)
+
+    wanted = {str(n) for n in names}
+    with transaction.atomic():
+        job.folders.filter(name__in=wanted).update(selected=True)
+        job.folders.exclude(name__in=wanted).update(selected=False)
+    return JsonResponse({"ok": True, "selected": len(wanted)})
+
+
+@otp_required(login_url="migrator:login")
+@require_POST
+def backup_start(request: HttpRequest, job_id: int) -> JsonResponse:
+    from .backup import blocking_reason, launch_backup_job
+
+    job = get_object_or_404(_owned_backup_jobs(request.user), pk=job_id)
+    reason = blocking_reason(job)
+    if reason == "no password saved":
+        return JsonResponse(
+            {"ok": False, "error": "No password saved for this mailbox. Edit it and enter the password again."},
+            status=400,
+        )
+    if reason:
+        return JsonResponse(
+            {"ok": False, "error": "Select at least one folder to back up."},
+            status=400,
+        )
+    started = launch_backup_job(job.pk)
+    return JsonResponse({"ok": True, "started": started})
+
+
+@otp_required(login_url="migrator:login")
+@require_GET
+def backup_status(request: HttpRequest, job_id: int) -> JsonResponse:
+    job = get_object_or_404(_owned_backup_jobs(request.user), pk=job_id)
+    return JsonResponse({
+        "status": job.status,
+        "processed": job.processed,
+        "total": job.total,
+        "error": job.error,
+        "started": job.started_at.isoformat() if job.started_at else None,
+        "finished": job.finished_at.isoformat() if job.finished_at else None,
+    })
+
+
+@otp_required(login_url="migrator:login")
+def backup_log_snapshot(request: HttpRequest, job_id: int) -> JsonResponse:
+    from .backup import hub_key
+
+    job = get_object_or_404(_owned_backup_jobs(request.user), pk=job_id)
+    events, max_seq = STATE.hub(hub_key(job.pk)).snapshot()
+    return JsonResponse({"events": events, "max_seq": max_seq})
+
+
+@otp_required(login_url="migrator:login")
+@csrf_exempt
+def backup_stream(request: HttpRequest, job_id: int) -> StreamingHttpResponse:
+    from .backup import hub_key
+
+    job = get_object_or_404(_owned_backup_jobs(request.user), pk=job_id)
+    return _sse_response(request, STATE.hub(hub_key(job.pk)))
+
+
+@otp_required(login_url="migrator:login")
+@require_GET
+def backup_download(request: HttpRequest, job_id: int) -> HttpResponse:
+    """Stream the archive: one folder tree of .eml files plus extracted
+    attachments and a manifest."""
+    from .backup import TempArchiveFile, archive_filename, build_archive
+
+    job = get_object_or_404(_owned_backup_jobs(request.user), pk=job_id)
+    if not BackupMessage.objects.filter(job=job).exclude(raw_bytes=b"").exists():
+        raise Http404("Nothing archived yet for this mailbox. Run the backup first.")
+
+    path = build_archive(job)
+    return FileResponse(
+        TempArchiveFile(path, "rb"), as_attachment=True,
+        filename=archive_filename(job), content_type="application/zip",
+    )
+
+
+@otp_required(login_url="migrator:login")
+@require_POST
+def delete_backup_job(request: HttpRequest, job_id: int) -> HttpResponse:
+    job = get_object_or_404(_owned_backup_jobs(request.user), pk=job_id)
+    label = job.label
+    job.delete()
+    messages.success(request, f"Deleted backup “{label}” and its archived messages.")
+    return redirect("migrator:backups")
+
+
+# ---------------------------------------------------------------------------
+# Restore — import an archive into a mailbox (the reverse of a backup)
+#
+# Like backups, restore jobs are private to their owner. The destination is the
+# only server touched, and only ever with APPEND.
+# ---------------------------------------------------------------------------
+
+def _owned_restore_jobs(user):
+    if not (user and user.is_authenticated):
+        return RestoreJob.objects.none()
+    return RestoreJob.objects.filter(owner=user)
+
+
+@otp_required(login_url="migrator:login")
+def restores(request: HttpRequest) -> HttpResponse:
+    jobs = list(_owned_restore_jobs(request.user).select_related("source_backup"))
+    for job in jobs:
+        job.size_display = _humanize_bytes(job.archive_size)
+    return render(request, "migrator/restores.html", {
+        "jobs": jobs,
+        "nav_active": "restores",
+    })
+
+
+@otp_required(login_url="migrator:login")
+def restore_new(request: HttpRequest) -> HttpResponse:
+    """Create an import: destination mailbox + where the messages come from."""
+    from .restore import ArchiveError, ingest_archive, load_from_backup
+
+    if request.method == "POST":
+        form = RestoreJobForm(request.POST, request.FILES, user=request.user)
+        if form.is_valid():
+            obj = form.save(commit=False)
+            obj.owner = request.user
+            obj.save()
+            password = form.cleaned_data.get("password") or ""
+            if password:
+                obj.password_enc = encrypt(password)
+                obj.save(update_fields=["password_enc"])
+
+            try:
+                if obj.source_kind == RestoreJob.SOURCE_BACKUP:
+                    summary = load_from_backup(obj)
+                else:
+                    upload = form.cleaned_data["archive"]
+                    summary = ingest_archive(obj, upload.read(), upload.name)
+            except ArchiveError as exc:
+                obj.delete()
+                form.add_error("archive" if request.FILES else "source_backup", str(exc))
+            except Exception as exc:
+                obj.delete()
+                form.add_error(None, f"Could not read that archive: {exc}")
+            else:
+                extra = (
+                    f" ({summary['duplicates']} duplicate(s) ignored)"
+                    if summary["duplicates"] else ""
+                )
+                messages.success(
+                    request,
+                    f"Read {summary['messages']} message(s) in "
+                    f"{summary['folders']} folder(s){extra}.",
+                )
+                return redirect("migrator:restore_detail", job_id=obj.pk)
+    else:
+        form = RestoreJobForm(user=request.user)
+
+    backups_available = (
+        BackupJob.objects.filter(owner=request.user)
+        .filter(messages__isnull=False).distinct().exists()
+    )
+    return render(request, "migrator/restore_new.html", {
+        "form": form,
+        "backups_available": backups_available,
+        "nav_active": "restores",
+    })
+
+
+@otp_required(login_url="migrator:login")
+def restore_detail(request: HttpRequest, job_id: int) -> HttpResponse:
+    job = get_object_or_404(_owned_restore_jobs(request.user), pk=job_id)
+    folders = list(job.folders.all())
+    return render(request, "migrator/restore_detail.html", {
+        "job": job,
+        "folders": folders,
+        "active_count": sum(1 for f in folders if f.action != "skip"),
+        "active_messages": sum(f.message_count for f in folders if f.action != "skip"),
+        "has_password": bool(bytes(job.password_enc)),
+        "duration": _duration_str(job.started_at, job.finished_at),
+        "nav_active": "restores",
+    })
+
+
+@otp_required(login_url="migrator:login")
+@require_POST
+def restore_pair(request: HttpRequest, job_id: int) -> JsonResponse:
+    """Connect to the destination and auto-pair the archive's folders."""
+    from .restore import pair_folders
+
+    job = get_object_or_404(_owned_restore_jobs(request.user), pk=job_id)
+    try:
+        rows = pair_folders(job)
+    except Exception as exc:
+        return JsonResponse({"ok": False, "error": str(exc)}, status=400)
+    return JsonResponse({
+        "ok": True,
+        "rows": [
+            {
+                "source": r.source_folder, "dest": r.dest_folder,
+                "action": r.action, "reason": r.pairing_reason,
+                "count": r.message_count,
+            }
+            for r in rows
+        ],
+    })
+
+
+@otp_required(login_url="migrator:login")
+@require_POST
+def restore_save_mapping(request: HttpRequest, job_id: int) -> JsonResponse:
+    """Persist the edited folder mapping table."""
+    job = get_object_or_404(_owned_restore_jobs(request.user), pk=job_id)
+    try:
+        rows = json.loads(request.POST.get("payload", "[]"))
+    except json.JSONDecodeError:
+        return JsonResponse({"ok": False, "error": "Bad payload"}, status=400)
+    if not isinstance(rows, list):
+        return JsonResponse({"ok": False, "error": "Bad payload"}, status=400)
+
+    by_source = {f.source_folder: f for f in job.folders.all()}
+    valid_actions = {"map", "create", "skip"}
+    saved = 0
+    with transaction.atomic():
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            existing = by_source.get(row.get("source") or "")
+            if existing is None:
+                continue
+            action = row.get("action") or "map"
+            if action not in valid_actions:
+                action = "map"
+            existing.dest_folder = (row.get("dest") or "").strip()
+            existing.action = action
+            existing.pairing_reason = "manual"
+            existing.save(update_fields=["dest_folder", "action", "pairing_reason"])
+            saved += 1
+    return JsonResponse({"ok": True, "saved": saved})
+
+
+@otp_required(login_url="migrator:login")
+@require_POST
+def restore_start(request: HttpRequest, job_id: int) -> JsonResponse:
+    from .restore import launch_restore_job
+
+    job = get_object_or_404(_owned_restore_jobs(request.user), pk=job_id)
+    if not bytes(job.password_enc):
+        return JsonResponse(
+            {"ok": False, "error": "No password saved for the destination mailbox."},
+            status=400,
+        )
+    active = job.folders.exclude(action="skip")
+    if not active.exists():
+        return JsonResponse(
+            {"ok": False, "error": "Every folder is set to skip — nothing to import."},
+            status=400,
+        )
+    if active.filter(dest_folder="").exists():
+        return JsonResponse(
+            {"ok": False, "error": "Some folders have no destination. Fill them in or set them to skip."},
+            status=400,
+        )
+    started = launch_restore_job(job.pk)
+    return JsonResponse({"ok": True, "started": started})
+
+
+@otp_required(login_url="migrator:login")
+@require_GET
+def restore_status(request: HttpRequest, job_id: int) -> JsonResponse:
+    job = get_object_or_404(_owned_restore_jobs(request.user), pk=job_id)
+    return JsonResponse({
+        "status": job.status,
+        "processed": job.processed,
+        "total": job.total,
+        "imported": job.imported,
+        "skipped": job.skipped,
+        "failed": job.failed,
+        "error": job.error,
+    })
+
+
+@otp_required(login_url="migrator:login")
+def restore_log_snapshot(request: HttpRequest, job_id: int) -> JsonResponse:
+    from .restore import hub_key
+
+    job = get_object_or_404(_owned_restore_jobs(request.user), pk=job_id)
+    events, max_seq = STATE.hub(hub_key(job.pk)).snapshot()
+    return JsonResponse({"events": events, "max_seq": max_seq})
+
+
+@otp_required(login_url="migrator:login")
+@csrf_exempt
+def restore_stream(request: HttpRequest, job_id: int) -> StreamingHttpResponse:
+    from .restore import hub_key
+
+    job = get_object_or_404(_owned_restore_jobs(request.user), pk=job_id)
+    return _sse_response(request, STATE.hub(hub_key(job.pk)))
+
+
+@otp_required(login_url="migrator:login")
+@require_POST
+def delete_restore_job(request: HttpRequest, job_id: int) -> HttpResponse:
+    job = get_object_or_404(_owned_restore_jobs(request.user), pk=job_id)
+    label = job.label
+    job.delete()
+    messages.success(request, f"Deleted import “{label}”. Imported mail stays in the mailbox.")
+    return redirect("migrator:restores")
 
 
 @otp_required(login_url="migrator:login")

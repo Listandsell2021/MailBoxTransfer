@@ -3,9 +3,32 @@
 {% block content %}
 
 <style>
-  .tiles { display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; margin-bottom: 22px; }
-  @media (max-width: 1200px) { .tiles { grid-template-columns: repeat(3, 1fr); } }
+  /* auto-fit rather than a fixed count: the row now holds migration, backup
+     and restore tiles, and wraps cleanly at any width. */
+  .tiles {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    gap: 14px; margin-bottom: 22px;
+  }
   @media (max-width: 720px) { .tiles { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 420px) { .tiles { grid-template-columns: 1fr; } }
+  .panels { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 18px; }
+  @media (max-width: 1100px) { .panels { grid-template-columns: 1fr; } }
+  .mini-row {
+    display: flex; align-items: center; gap: 12px;
+    padding: 11px 20px; border-bottom: 1px solid var(--card-border);
+    font-size: 13.5px;
+  }
+  .mini-row:last-child { border-bottom: 0; }
+  .mini-row .name {
+    font-weight: 600; color: var(--text); min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .mini-row .meta { color: var(--muted); font-size: 12px; }
+  .mini-row .right { margin-left: auto; text-align: right; white-space: nowrap; }
+  .mini-row .avatar {
+    width: 26px; height: 26px; border-radius: 7px; flex-shrink: 0; color: #fff;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
   .tile {
     background: var(--card); border: 1px solid var(--card-border);
     border-radius: var(--r-lg); padding: 18px 20px; box-shadow: var(--card-shadow);
@@ -100,19 +123,24 @@
     <h1>Dashboard</h1>
     <p class="page-sub">
       {% if is_admin_view %}
-        System-wide overview · you have admin access to every migration.
+        System-wide migrations · you have admin access to every migration. Backups and imports below are your own.
       {% else %}
-        Overview of your migrations.
+        Overview of your migrations, backups and imports.
       {% endif %}
     </p>
   </div>
-  <div class="actions">
-    <a class="btn btn-primary" href="{% url 'migrator:config_new' %}">
-      <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-      New migration
-    </a>
+</div>
+
+{% if scheduler and not scheduler.running %}
+<div class="alert warn">
+  <svg class="icon-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+  <div>
+    You have {{ scheduled_backup_count }} scheduled backup{{ scheduled_backup_count|pluralize }},
+    but the scheduler isn't running — nothing is being archived automatically.
+    {% if scheduler.last_seen %}Last seen {{ scheduler.last_seen|date:"Y-m-d H:i" }}.{% endif %}
   </div>
 </div>
+{% endif %}
 
 {% if is_admin_view and pending_approvals %}
 <div class="pending-banner">
@@ -135,34 +163,71 @@
   <div class="tile">
     <div class="lbl">Migrations</div>
     <div class="val">{{ total_migrations }}</div>
-    <div class="sub">{% if is_admin_view %}across all users{% else %}you own{% endif %}</div>
+    <div class="sub">
+      {% if total_backed_up %}{{ success_rate }}% transferred · {{ total_transferred }} of {{ total_backed_up }} messages
+      {% else %}{% if is_admin_view %}across all users{% else %}you own{% endif %}{% endif %}
+    </div>
     <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
   </div>
-  <div class="tile green">
-    <div class="lbl">Messages transferred</div>
-    <div class="val">{{ total_transferred }}</div>
-    <div class="sub">of {{ total_backed_up }} backed up</div>
-    <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-  </div>
   <div class="tile indigo">
-    <div class="lbl">Success rate</div>
-    <div class="val">{{ success_rate }}%</div>
-    <div class="sub">transferred / backed up</div>
-    <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+    <div class="lbl">Messages archived</div>
+    <div class="val">{{ backup_message_count }}</div>
+    <div class="sub">
+      {% if backup_job_count %}
+        {{ backup_job_count }} mailbox{{ backup_job_count|pluralize:"es" }} · {{ backup_storage_display }}
+      {% else %}no backups yet{% endif %}
+    </div>
+    <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8v13H3V8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg>
   </div>
-  <div class="tile {% if failed_24h_count %}red{% endif %}">
-    <div class="lbl">Failed phases · 24h</div>
-    <div class="val">{{ failed_24h_count }}</div>
-    <div class="sub">{% if failed_24h_count %}needs attention{% else %}none recently{% endif %}</div>
-    <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+  <div class="tile green">
+    <div class="lbl">Messages imported</div>
+    <div class="val">{{ restore_imported_count }}</div>
+    <div class="sub">
+      {% if restore_run_count %}across {{ restore_run_count }} import{{ restore_run_count|pluralize }}{% else %}no imports yet{% endif %}
+    </div>
+    <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
   </div>
   <div class="tile orange">
     <div class="lbl">Storage used</div>
     <div class="val" style="font-size: 22px;">{{ storage_display }}</div>
-    <div class="sub">{% if is_admin_view %}all users · email bodies in DB{% else %}your email bodies in DB{% endif %}</div>
+    <div class="sub">{% if is_admin_view %}all users · migration bodies in DB{% else %}your migration bodies in DB{% endif %}</div>
     <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
   </div>
+  {# Attention-only: a zero here is not worth a permanent tile. #}
+  {% if failed_24h_count or failed_backup_count %}
+  <div class="tile red">
+    <div class="lbl">Needs attention</div>
+    <div class="val">{{ failed_24h_count|add:failed_backup_count }}</div>
+    <div class="sub">
+      {% if failed_24h_count %}{{ failed_24h_count }} failed phase{{ failed_24h_count|pluralize }} · 24h{% endif %}
+      {% if failed_24h_count and failed_backup_count %} · {% endif %}
+      {% if failed_backup_count %}{{ failed_backup_count }} failed backup{{ failed_backup_count|pluralize }}{% endif %}
+    </div>
+    <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+  </div>
+  {% endif %}
 </div>
+
+{% if next_backup %}
+<div class="card" style="display:flex; align-items:center; justify-content:space-between; padding: 14px 20px; margin-bottom: 18px; gap: 14px; flex-wrap: wrap;">
+  <div style="display:flex; align-items:center; gap:12px; min-width:0;">
+    <span style="width:34px; height:34px; border-radius:9px; background:#eef2ff; color:var(--primary); display:inline-flex; align-items:center; justify-content:center; flex-shrink:0;">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+    </span>
+    <div style="min-width:0;">
+      <div style="font-size:14px; font-weight:600;">
+        Next automatic backup {{ next_backup.next_run_at|timeuntil }} from now
+      </div>
+      <div class="muted" style="font-size:12.5px;">
+        {{ next_backup.label }} · {{ next_backup.schedule_description }} ·
+        {{ next_backup.next_run_at|date:"D, d M H:i" }}
+        {% if scheduled_backup_count > 1 %} · {{ scheduled_backup_count }} mailboxes scheduled{% endif %}
+      </div>
+    </div>
+  </div>
+  <a class="btn btn-grey" href="{% url 'migrator:backup_detail' next_backup.id %}">Open</a>
+</div>
+{% endif %}
 
 {% if is_admin_view and user_count is not None %}
 <div class="card" style="display:flex; align-items:center; justify-content:space-between; padding: 16px 20px; margin-bottom: 18px; gap: 14px; flex-wrap: wrap;">
@@ -226,7 +291,7 @@
       <tbody>
         {% for m in recent %}
           <tr>
-            <td class="muted" style="font-variant-numeric: tabular-nums;">{{ m.id }}</td>
+            <td class="muted" style="font-variant-numeric: tabular-nums;" title="Database ID {{ m.id }}">{{ forloop.counter }}</td>
             <td>
               <div style="display:flex; align-items:center; gap:10px;">
                 <span style="width:26px; height:26px; border-radius:7px; background:linear-gradient(135deg,#6366f1,#a855f7); color:#fff; display:inline-flex; align-items:center; justify-content:center; font-size:11.5px; font-weight:700;">
@@ -260,6 +325,85 @@
       </div>
     </div>
   {% endif %}
+</div>
+
+<div class="panels">
+  <div class="card" style="padding: 0; overflow: hidden; margin-bottom: 0;">
+    <div style="padding: 14px 20px; border-bottom: 1px solid var(--card-border); display:flex; align-items:center; justify-content:space-between;">
+      <div style="font-weight: 600;">Recent backups</div>
+      <a class="muted" style="font-size: 12.5px; text-decoration: none;" href="{% url 'migrator:backups' %}">View all →</a>
+    </div>
+    {% if recent_backups %}
+      {% for job in recent_backups %}
+        <div class="mini-row">
+          <span class="avatar" style="background:linear-gradient(135deg,#0ea5e9,#4f46e5);">
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          </span>
+          <div style="min-width:0;">
+            <div class="name">{{ job.name|default:job.username }}</div>
+            <div class="meta">
+              {{ job.message_count }} message{{ job.message_count|pluralize }}
+              {% if job.schedule_is_on %} · {{ job.schedule_description }}{% endif %}
+            </div>
+          </div>
+          <div class="right">
+            {% if job.status == 'success' %}<span class="pill green">Complete</span>
+            {% elif job.status == 'running' %}<span class="pill sky">Running</span>
+            {% elif job.status == 'failed' %}<span class="pill red">Failed</span>
+            {% else %}<span class="pill grey">Not run</span>{% endif %}
+            <div class="meta" style="margin-top:2px;">{{ job.finished_at|date:"d M H:i"|default:"—" }}</div>
+          </div>
+          <a class="btn btn-grey" style="padding:5px 10px; font-size:12px;" href="{% url 'migrator:backup_detail' job.id %}">Open</a>
+        </div>
+      {% endfor %}
+    {% else %}
+      <div class="empty" style="padding: 30px 20px;">
+        <svg class="icon-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8v13H3V8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg>
+        <b>No backups yet</b>
+        Archive a whole mailbox — folders, messages and attachments.
+        <div style="margin-top:12px;">
+          <a class="btn btn-primary" href="{% url 'migrator:backup_new' %}">+ New backup</a>
+        </div>
+      </div>
+    {% endif %}
+  </div>
+
+  <div class="card" style="padding: 0; overflow: hidden; margin-bottom: 0;">
+    <div style="padding: 14px 20px; border-bottom: 1px solid var(--card-border); display:flex; align-items:center; justify-content:space-between;">
+      <div style="font-weight: 600;">Recent imports</div>
+      <a class="muted" style="font-size: 12.5px; text-decoration: none;" href="{% url 'migrator:restores' %}">View all →</a>
+    </div>
+    {% if recent_restores %}
+      {% for job in recent_restores %}
+        <div class="mini-row">
+          <span class="avatar" style="background:linear-gradient(135deg,#10b981,#0ea5e9);">
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          </span>
+          <div style="min-width:0;">
+            <div class="name">{{ job.name|default:job.username }}</div>
+            <div class="meta">from {{ job.source_label }}</div>
+          </div>
+          <div class="right">
+            {% if job.status == 'success' %}<span class="pill green">{{ job.imported }} imported</span>
+            {% elif job.status == 'running' %}<span class="pill sky">Running</span>
+            {% elif job.status == 'failed' %}<span class="pill red">Failed</span>
+            {% else %}<span class="pill grey">Not run</span>{% endif %}
+            <div class="meta" style="margin-top:2px;">{{ job.finished_at|date:"d M H:i"|default:"—" }}</div>
+          </div>
+          <a class="btn btn-grey" style="padding:5px 10px; font-size:12px;" href="{% url 'migrator:restore_detail' job.id %}">Open</a>
+        </div>
+      {% endfor %}
+    {% else %}
+      <div class="empty" style="padding: 30px 20px;">
+        <svg class="icon-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        <b>No imports yet</b>
+        Put an archived mailbox into another email account.
+        <div style="margin-top:12px;">
+          <a class="btn btn-primary" href="{% url 'migrator:restore_new' %}">+ New import</a>
+        </div>
+      </div>
+    {% endif %}
+  </div>
 </div>
 
 {% endblock %}

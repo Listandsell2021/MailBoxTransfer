@@ -1,0 +1,509 @@
+{% extends "migrator/base.html" %}
+{% block title %}Backup · {{ job.label }}{% endblock %}
+{% block content %}
+
+<style>
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 18px; }
+  .stat {
+    background: var(--card); border: 1px solid var(--card-border);
+    border-radius: var(--r); padding: 14px 16px; box-shadow: var(--card-shadow);
+  }
+  .stat .label {
+    font-size: 11px; font-weight: 600; color: var(--muted);
+    text-transform: uppercase; letter-spacing: .05em;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .stat .value {
+    font-size: 22px; font-weight: 700; color: var(--text);
+    margin-top: 4px; letter-spacing: -0.02em; font-variant-numeric: tabular-nums;
+  }
+  .stat .value.success { color: var(--green); }
+  .stat .value.running { color: var(--primary); }
+  .stat .value.failed  { color: var(--red); }
+  @media (max-width: 720px) { .stats { grid-template-columns: repeat(2, 1fr); } }
+
+  .folder-list { max-height: 420px; overflow-y: auto; border-top: 1px solid var(--card-border); }
+  .folder-row {
+    display: grid; grid-template-columns: 26px 1fr auto;
+    gap: 10px; align-items: center;
+    padding: 10px 4px; border-bottom: 1px solid var(--card-border);
+  }
+  .folder-row:last-child { border-bottom: 0; }
+  .folder-row:hover { background: var(--hover); }
+  .folder-row .fname {
+    font-size: 13.5px; font-weight: 500; color: var(--text);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .folder-row .fmeta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .folder-row .fcount {
+    font-size: 12.5px; color: var(--muted); text-align: right;
+    font-variant-numeric: tabular-nums; white-space: nowrap;
+  }
+  .run-strip {
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    padding: 16px 0 4px;
+  }
+  .run-strip .prog-wrap { flex: 1; min-width: 220px; }
+
+  /* Schedule strip — full width, directly under the stats, so the setting is
+     visible without scrolling past the folder list. */
+  .schedule-card { padding: 18px 20px; }
+  .schedule-card select { background: #fff; }
+  .sched-grid {
+    display: flex; align-items: flex-end; gap: 18px 24px; flex-wrap: wrap;
+  }
+  .sched-head {
+    display: flex; align-items: center; gap: 8px;
+    padding-bottom: 6px; flex-shrink: 0;
+  }
+  .sched-controls {
+    display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end;
+    margin-left: auto;
+  }
+  @media (max-width: 720px) {
+    .sched-controls { margin-left: 0; }
+    .sched-controls .field { flex: 1 1 120px; }
+  }
+</style>
+
+<div class="page-head">
+  <div>
+    <h1>{{ job.name|default:job.username }}</h1>
+    <p class="page-sub">
+      {{ job.username }} · {{ job.host }}:{{ job.port }} · {% if job.use_ssl %}SSL/TLS{% else %}plain{% endif %}
+      — read-only archive of every selected folder, attachments included.
+    </p>
+  </div>
+  <div class="actions">
+    <a class="btn btn-grey" href="{% url 'migrator:backup_edit' job.id %}">
+      <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4z"/></svg>
+      Edit mailbox
+    </a>
+    <a class="btn btn-primary {% if not stats.stored %}is-disabled{% endif %}" id="download-btn"
+       href="{% url 'migrator:backup_download' job.id %}"
+       title="{% if stats.stored %}Download ZIP: folder tree of .eml files + extracted attachments{% else %}Run the backup first{% endif %}">
+      <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      Download ZIP
+    </a>
+  </div>
+</div>
+
+<div class="stats">
+  <div class="stat">
+    <div class="label">
+      <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" style="color:var(--primary);"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+      Status
+    </div>
+    <div class="value {% if job.status == 'success' %}success{% elif job.status == 'running' %}running{% elif job.status == 'failed' %}failed{% endif %}" id="stat-status">
+      {% if job.status == 'pending' %}Not run{% else %}{{ job.get_status_display }}{% endif %}
+    </div>
+  </div>
+  <div class="stat">
+    <div class="label">
+      <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" style="color:var(--green);"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+      Messages archived
+    </div>
+    <div class="value" id="stat-messages">{{ stats.stored }}</div>
+  </div>
+  <div class="stat">
+    <div class="label">
+      <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" style="color:var(--orange);"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+      Attachments
+    </div>
+    <div class="value">{{ stats.attachments }}</div>
+  </div>
+  <div class="stat">
+    <div class="label">
+      <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" style="color:var(--sky);"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+      Archive size
+    </div>
+    <div class="value">{{ stats.size_display }}</div>
+  </div>
+</div>
+
+{% if not has_password %}
+  <div class="alert warn">
+    <svg class="icon-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+    <div>No password saved for this mailbox — <a href="{% url 'migrator:backup_edit' job.id %}" style="color:#92400e; font-weight:600; text-decoration:underline;">enter it again</a> before running a backup.</div>
+  </div>
+{% endif %}
+
+{% if job.schedule_is_on and not scheduler.running %}
+  <div class="alert warn">
+    <svg class="icon-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+    <div>
+      A schedule is set, but the scheduler process isn't running — nothing will run automatically.
+      {% if scheduler.last_seen %}Last seen {{ scheduler.last_seen|date:"Y-m-d H:i" }}.{% else %}It has never checked in.{% endif %}
+      Start it with <code>docker compose up -d scheduler</code>.
+    </div>
+  </div>
+{% endif %}
+
+{% if job.status == 'failed' and job.error %}
+  <div class="alert error">
+    <svg class="icon-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+    <div>Last run failed: {{ job.error|truncatechars:300 }}</div>
+  </div>
+{% endif %}
+
+<div class="card schedule-card">
+  <form method="post" action="{% url 'migrator:backup_schedule' job.id %}" id="schedule-form">
+    {% csrf_token %}
+    <div class="sched-grid">
+      <div class="sched-head">
+        <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" style="color:var(--primary);"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        <h2 style="margin:0; font-size:15px;">Automatic backup</h2>
+        {% if job.schedule_is_on %}
+          <span class="pill green">On</span>
+        {% else %}
+          <span class="pill grey">Off</span>
+        {% endif %}
+      </div>
+
+      <div class="sched-controls">
+        <div class="field" style="margin:0; min-width:190px;">
+          <label for="id_schedule">How often</label>
+          {{ schedule_form.schedule }}
+        </div>
+        <div class="field js-time-field" style="margin:0; width:92px;">
+          <label for="id_schedule_hour">Hour</label>
+          {{ schedule_form.schedule_hour }}
+        </div>
+        <div class="field js-minute-field" style="margin:0; width:92px;">
+          <label for="id_schedule_minute">Minute</label>
+          {{ schedule_form.schedule_minute }}
+        </div>
+        <div class="field js-weekday-field" style="margin:0; min-width:140px;">
+          <label for="id_schedule_weekday">Day</label>
+          {{ schedule_form.schedule_weekday }}
+        </div>
+        <button type="submit" class="btn btn-primary">Save schedule</button>
+      </div>
+    </div>
+
+    <div id="schedule-preview" class="muted"
+         style="font-size:12.5px; margin-top:12px; display:none;"></div>
+
+    <div class="muted" style="font-size:12.5px; margin-top:10px;">
+      {% if job.schedule_is_on and job.next_run_at %}
+        <b style="color:var(--text);">{{ job.schedule_description }}</b> ·
+        next run {{ job.next_run_at|date:"D, d M Y H:i" }}
+        ({{ job.next_run_at|timeuntil }} from now)
+        {% if job.last_scheduled_at %} · last automatic run {{ job.last_scheduled_at|date:"Y-m-d H:i" }}{% endif %}
+      {% else %}
+        This mailbox only backs up when you press the button. Pick a frequency to keep it current by itself.
+      {% endif %}
+      · Times are {{ tz_name|default:"Europe/Berlin" }}. Automatic runs only email you if something fails.
+    </div>
+  </form>
+</div>
+
+<div class="grid dash">
+  <div class="card">
+    <div style="display:flex; justify-content:space-between; align-items:flex-end; gap:14px; flex-wrap:wrap;">
+      <div>
+        <h2>Folders</h2>
+        <p class="lead" style="margin:0;">
+          {% if job.folders_listed_at %}Listed {{ job.folders_listed_at|date:"Y-m-d H:i" }}. Tick what to archive.
+          {% else %}Load the folder list from the server to get started.{% endif %}
+        </p>
+      </div>
+      <button class="btn btn-grey" id="refresh-folders">
+        <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+        {% if folders %}Refresh folders{% else %}Load folders{% endif %}
+      </button>
+    </div>
+
+    {% if folders %}
+      <div style="display:flex; align-items:center; gap:10px; margin-top:14px; flex-wrap:wrap;">
+        <button type="button" class="btn btn-grey" id="select-all" style="padding:5px 10px; font-size:12px;">Select all</button>
+        <button type="button" class="btn btn-grey" id="select-none" style="padding:5px 10px; font-size:12px;">Select none</button>
+        <span class="muted" style="font-size:13px;" id="select-count">{{ selected_count }} of {{ folders|length }} selected</span>
+      </div>
+
+      <div class="folder-list" style="margin-top:10px;">
+        {% for f in folders %}
+        <label class="folder-row">
+          <input type="checkbox" class="js-folder" value="{{ f.name }}" {% if f.selected %}checked{% endif %}>
+          <div style="min-width:0;">
+            <div class="fname">{{ f.name }}</div>
+            <div class="fmeta">
+              {% if f.stored %}{{ f.stored }} archived{% if f.attachments %} · {{ f.attachments }} attachment{{ f.attachments|pluralize }}{% endif %} · {{ f.size_display }}
+              {% else %}not archived yet{% endif %}
+            </div>
+          </div>
+          <div class="fcount">{{ f.server_count }} on server</div>
+        </label>
+        {% endfor %}
+      </div>
+
+      <div class="run-strip">
+        <button class="btn {% if job.status == 'running' %}btn-grey{% else %}btn-sky{% endif %}" id="run-btn"
+                {% if job.status == 'running' or not has_password %}disabled{% endif %}>
+          {% if job.status == 'running' %}Running…{% elif job.status == 'success' %}Run again{% else %}Start backup{% endif %}
+        </button>
+        <div class="prog-wrap">
+          <div class="progress {% if job.status == 'success' %}success{% endif %}">
+            <span style="width:{% if job.total %}{% widthratio job.processed job.total 100 %}{% else %}0{% endif %}%"></span>
+          </div>
+          <div style="display:flex; justify-content:space-between; font-size:12px; color:var(--muted); font-variant-numeric:tabular-nums;">
+            <span id="prog-text">
+              {% if job.total %}{{ job.processed }} / {{ job.total }} messages{% else %}—{% endif %}
+              {% if duration %} · {{ duration }}{% endif %}
+            </span>
+            <span id="prog-pct">{% if job.total %}{% widthratio job.processed job.total 100 %}%{% else %}—{% endif %}</span>
+          </div>
+        </div>
+      </div>
+
+      <p class="muted" style="margin: 14px 0 0; font-size: 12.5px;">
+        Every run re-reads the folder list first, so folders you create later are picked up on their own — and only
+        messages that aren't archived yet get downloaded. The ZIP contains one folder per mailbox folder with an
+        <code>.eml</code> per message and an <code>_attachments/</code> directory holding the extracted files,
+        plus <code>manifest.csv</code>.
+      </p>
+
+    {% else %}
+      <div class="empty" style="margin-top:16px;">
+        <svg class="icon-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+        <b>No folders loaded</b>
+        Connect to the mailbox to list its folders, then pick what to archive.
+      </div>
+    {% endif %}
+  </div>
+
+  <div class="card" style="padding: 0; display:flex; flex-direction:column;">
+    <div style="display:flex; justify-content:space-between; align-items:center; padding: 14px 18px; border-bottom: 1px solid var(--card-border);">
+      <div style="display:flex; align-items:center; gap:8px;">
+        <span style="width:8px; height:8px; border-radius:50%; background:#10b981; box-shadow:0 0 0 3px rgba(16,185,129,.2);"></span>
+        <h2 style="margin:0; font-size:14px; font-weight:600;">Live log</h2>
+      </div>
+      <button id="log-clear" class="btn btn-grey" style="padding:5px 10px; font-size:12px;">Clear</button>
+    </div>
+    <div id="log" class="log" aria-live="polite" style="border-radius: 0 0 var(--r-lg) var(--r-lg); border-left:0; border-right:0; border-bottom:0; height: 560px;"></div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const JOB_ID = {{ job.id }};
+const csrf = "{{ csrf_token }}";
+const logEl = document.getElementById('log');
+
+function escapeText(s) { return String(s ?? '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+function append(level, message, atTs) {
+  const div = document.createElement('div');
+  div.className = 'line ' + (level || 'info');
+  const stamp = (atTs ? new Date(atTs * 1000) : new Date()).toTimeString().slice(0, 8);
+  div.innerHTML = `<span class="ts">[${stamp}]</span> <span class="tag">${(level || 'info').toUpperCase()}</span> ${escapeText(message)}`;
+  logEl.appendChild(div);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+document.getElementById('log-clear').addEventListener('click', () => logEl.innerHTML = '');
+
+function applyProgress(data) {
+  const bar = document.querySelector('.progress > span');
+  if (!bar) return;
+  const pct = data.total ? (100 * data.processed / data.total) : 0;
+  bar.style.width = pct + '%';
+  document.getElementById('prog-pct').textContent = data.total ? Math.round(pct) + '%' : '—';
+  document.getElementById('prog-text').textContent =
+    `${(data.processed || 0).toLocaleString()} / ${(data.total || 0).toLocaleString()} messages`
+    + (data.folder ? ` · ${data.folder}` : '');
+}
+
+const runBtn = document.getElementById('run-btn');
+function setRunBtn(label, disabled, klass) {
+  if (!runBtn) return;
+  runBtn.textContent = label;
+  runBtn.disabled = !!disabled;
+  if (klass) {
+    runBtn.classList.remove('btn-sky', 'btn-grey');
+    runBtn.classList.add(klass);
+  }
+}
+
+let reloadScheduled = false;
+function handlePhase(e) {
+  const data = JSON.parse(e.data);
+  const statusEl = document.getElementById('stat-status');
+  const labels = {running: 'Running', success: 'Success', failed: 'Failed'};
+  statusEl.textContent = labels[data.status] || data.status;
+  statusEl.classList.remove('success', 'running', 'failed');
+  if (data.status === 'success') statusEl.classList.add('success');
+  else if (data.status === 'running') statusEl.classList.add('running');
+  else if (data.status === 'failed') statusEl.classList.add('failed');
+
+  if (data.status === 'running') {
+    setRunBtn('Running…', true, 'btn-grey');
+  } else if (!reloadScheduled) {
+    // Reload once the run ends so counts, sizes and the download button
+    // reflect what actually landed in the database.
+    reloadScheduled = true;
+    setRunBtn(data.status === 'success' ? 'Run again' : 'Start backup', true, 'btn-sky');
+    setTimeout(() => location.reload(), 1500);
+  }
+}
+
+// Render the server's history buffer first, then stream only what's new.
+let es = null;
+function startStream(sinceSeq) {
+  es = new EventSource(`/backups/${JOB_ID}/stream/?since=${sinceSeq}`);
+  es.addEventListener('log', e => {
+    const data = JSON.parse(e.data);
+    append(data.level || 'info', data.message || '');
+  });
+  es.addEventListener('progress', e => applyProgress(JSON.parse(e.data)));
+  es.addEventListener('phase', handlePhase);
+}
+fetch(`/backups/${JOB_ID}/log-snapshot/`, {credentials: 'same-origin'})
+  .then(r => r.json())
+  .then(snap => {
+    for (const ev of (snap.events || [])) {
+      if (ev.type === 'log') append(ev.level || 'info', ev.message || '', ev.ts);
+      else if (ev.type === 'progress') applyProgress(ev);
+    }
+    startStream(snap.max_seq || 0);
+  })
+  .catch(() => startStream(0));
+
+// ----- Folder selection -----
+const boxes = () => Array.from(document.querySelectorAll('.js-folder'));
+function updateCount() {
+  const el = document.getElementById('select-count');
+  if (el) el.textContent = `${boxes().filter(b => b.checked).length} of ${boxes().length} selected`;
+}
+async function saveSelection() {
+  const selected = boxes().filter(b => b.checked).map(b => b.value);
+  const body = new URLSearchParams({selected: JSON.stringify(selected)});
+  const resp = await fetch(`/backups/${JOB_ID}/save-folders/`, {
+    method: 'POST', headers: {'X-CSRFToken': csrf}, body,
+  });
+  if (!resp.ok) mtSwal.error('Could not save the folder selection.');
+  updateCount();
+}
+boxes().forEach(b => b.addEventListener('change', saveSelection));
+document.getElementById('select-all')?.addEventListener('click', () => {
+  boxes().forEach(b => b.checked = true); saveSelection();
+});
+document.getElementById('select-none')?.addEventListener('click', () => {
+  boxes().forEach(b => b.checked = false); saveSelection();
+});
+
+// ----- Load / refresh folders -----
+document.getElementById('refresh-folders').addEventListener('click', async (e) => {
+  const btn = e.currentTarget;
+  const original = btn.innerHTML;
+  btn.disabled = true;
+  btn.textContent = 'Connecting…';
+  try {
+    const resp = await fetch(`/backups/${JOB_ID}/folders/`, {
+      method: 'POST', headers: {'X-CSRFToken': csrf},
+    });
+    const data = await resp.json();
+    if (!data.ok) {
+      mtSwal.error(data.error || 'Could not connect', 'Connection failed');
+      btn.disabled = false;
+      btn.innerHTML = original;
+      return;
+    }
+    mtSwal.toast(`Found ${data.count} folder(s)`);
+    setTimeout(() => location.reload(), 700);
+  } catch (err) {
+    mtSwal.error(String(err), 'Connection failed');
+    btn.disabled = false;
+    btn.innerHTML = original;
+  }
+});
+
+// ----- Start the backup -----
+runBtn?.addEventListener('click', async () => {
+  setRunBtn('Starting…', true);
+  const resp = await fetch(`/backups/${JOB_ID}/start/`, {
+    method: 'POST', headers: {'X-CSRFToken': csrf},
+  });
+  const data = await resp.json();
+  if (!data.ok) {
+    mtSwal.error(data.error || 'Failed to start', 'Could not start the backup');
+    setRunBtn('Start backup', false, 'btn-sky');
+  } else {
+    setRunBtn('Running…', true, 'btn-grey');
+  }
+});
+
+updateCount();
+
+// ----- Schedule form -----
+// Show only the fields the chosen frequency actually uses, and spell out in
+// plain times what the combination means — "Minute" on its own doesn't tell
+// you that an hourly job at :30 runs 13:30, 14:30, 15:30…
+const scheduleSelect = document.getElementById('id_schedule');
+const hourSelect = document.getElementById('id_schedule_hour');
+const minuteSelect = document.getElementById('id_schedule_minute');
+const weekdaySelect = document.getElementById('id_schedule_weekday');
+const previewEl = document.getElementById('schedule-preview');
+
+function schedulePreview(v, hh, mm, dayText) {
+  if (v === 'hourly') {
+    return 'Runs <b>every hour, on the hour</b> — 13:00, 14:00, 15:00, and so on, around the clock.';
+  }
+  if (v === '6h') {
+    return 'Runs <b>four times a day</b> — 00:00, 06:00, 12:00, 18:00.';
+  }
+  if (v === 'daily') return `Runs <b>once a day</b> at ${hh}:${mm}.`;
+  if (v === 'weekly') return `Runs <b>once a week</b>, every ${dayText} at ${hh}:${mm}.`;
+  return '';
+}
+
+function syncScheduleFields() {
+  if (!scheduleSelect) return;
+  const v = scheduleSelect.value;
+  // Hourly and 6-hourly run on the hour, so there is no time to pick at all.
+  const showTime = (v === 'daily' || v === 'weekly');
+  const showDay = (v === 'weekly');
+  document.querySelector('.js-time-field').style.display = showTime ? '' : 'none';
+  document.querySelector('.js-minute-field').style.display = showTime ? '' : 'none';
+  document.querySelector('.js-weekday-field').style.display = showDay ? '' : 'none';
+
+  const hh = hourSelect ? hourSelect.value.padStart(2, '0') : '00';
+  const mm = minuteSelect ? minuteSelect.value.padStart(2, '0') : '00';
+  const dayText = weekdaySelect ? weekdaySelect.options[weekdaySelect.selectedIndex].text : '';
+  const html = schedulePreview(v, hh, mm, dayText);
+  if (previewEl) {
+    previewEl.innerHTML = html;
+    previewEl.style.display = html ? '' : 'none';
+  }
+}
+[scheduleSelect, hourSelect, minuteSelect, weekdaySelect].forEach(
+  el => el?.addEventListener('change', syncScheduleFields));
+syncScheduleFields();
+
+// ----- Poll job status -----
+// A scheduled run happens in the scheduler container, so its events never
+// reach this page's SSE stream (hubs are per-process). Polling the DB-backed
+// status endpoint means a run started by the scheduler still shows up here.
+let lastStatus = "{{ job.status }}";
+setInterval(async () => {
+  if (reloadScheduled) return;
+  try {
+    const r = await fetch(`/backups/${JOB_ID}/status/`, {credentials: 'same-origin'});
+    if (!r.ok) return;
+    const s = await r.json();
+    if (s.status === 'running') {
+      applyProgress({processed: s.processed, total: s.total});
+      const el = document.getElementById('stat-status');
+      el.textContent = 'Running';
+      el.classList.add('running');
+      setRunBtn('Running…', true, 'btn-grey');
+    }
+    if (lastStatus === 'running' && s.status !== 'running') {
+      reloadScheduled = true;
+      setTimeout(() => location.reload(), 500);
+    }
+    lastStatus = s.status;
+  } catch (e) { /* transient network error — try again next tick */ }
+}, 15000);
+</script>
+{% endblock %}
