@@ -18,6 +18,33 @@ urlpatterns = [
     path("users/<int:user_id>/toggle-active/", views.toggle_user_active, name="toggle_user_active"),
     path("users/<int:user_id>/delete/", views.delete_user, name="delete_user"),
 
+    # Backup-only mailbox archives (no destination server involved)
+    path("backups/", views.backups, name="backups"),
+    path("backups/new/", views.backup_config, name="backup_new"),
+    path("backups/<int:job_id>/", views.backup_detail, name="backup_detail"),
+    path("backups/<int:job_id>/edit/", views.backup_config, name="backup_edit"),
+    path("backups/<int:job_id>/folders/", views.backup_refresh_folders, name="backup_refresh_folders"),
+    path("backups/<int:job_id>/save-folders/", views.backup_save_folders, name="backup_save_folders"),
+    path("backups/<int:job_id>/schedule/", views.backup_schedule, name="backup_schedule"),
+    path("backups/<int:job_id>/start/", views.backup_start, name="backup_start"),
+    path("backups/<int:job_id>/status/", views.backup_status, name="backup_status"),
+    path("backups/<int:job_id>/stream/", views.backup_stream, name="backup_stream"),
+    path("backups/<int:job_id>/log-snapshot/", views.backup_log_snapshot, name="backup_log_snapshot"),
+    path("backups/<int:job_id>/download/", views.backup_download, name="backup_download"),
+    path("backups/<int:job_id>/delete/", views.delete_backup_job, name="delete_backup_job"),
+
+    # Restore — import an archive (uploaded or an existing backup) into a mailbox
+    path("restores/", views.restores, name="restores"),
+    path("restores/new/", views.restore_new, name="restore_new"),
+    path("restores/<int:job_id>/", views.restore_detail, name="restore_detail"),
+    path("restores/<int:job_id>/pair/", views.restore_pair, name="restore_pair"),
+    path("restores/<int:job_id>/save-mapping/", views.restore_save_mapping, name="restore_save_mapping"),
+    path("restores/<int:job_id>/start/", views.restore_start, name="restore_start"),
+    path("restores/<int:job_id>/status/", views.restore_status, name="restore_status"),
+    path("restores/<int:job_id>/stream/", views.restore_stream, name="restore_stream"),
+    path("restores/<int:job_id>/log-snapshot/", views.restore_log_snapshot, name="restore_log_snapshot"),
+    path("restores/<int:job_id>/delete/", views.delete_restore_job, name="delete_restore_job"),
+
     path("notifications/", views.notifications, name="notifications"),
     path("notifications/clear/", views.clear_notifications, name="clear_notifications"),
 

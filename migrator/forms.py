@@ -2,7 +2,7 @@ from django import forms
 
 from allauth.account.forms import SignupForm
 
-from .models import Migration, UserProfile
+from .models import BackupJob, Migration, RestoreJob, UserProfile
 
 
 class MailboxSignupForm(SignupForm):
@@ -102,6 +102,147 @@ class MigrationForm(forms.ModelForm):
         return obj
 
 
+class BackupJobForm(forms.ModelForm):
+    """Source mailbox only — a backup job has no destination server."""
+
+    password = forms.CharField(
+        widget=forms.PasswordInput(
+            render_value=False,
+            attrs={"placeholder": "(leave blank to keep current)"},
+        ),
+        required=False,
+    )
+    security = forms.ChoiceField(choices=SECURITY_CHOICES, required=True, initial="ssl")
+
+    class Meta:
+        model = BackupJob
+        fields = ["name", "host", "port", "username"]
+        labels = {"name": "Label", "username": "Email / username"}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.instance and self.instance.pk:
+            self.fields["security"].initial = "ssl" if self.instance.use_ssl else "none"
+        else:
+            # A brand-new job has nothing stored to fall back on.
+            self.fields["password"].required = True
+            self.fields["password"].widget.attrs["placeholder"] = "Mailbox password"
+
+    def clean_password(self):
+        pwd = self.cleaned_data.get("password") or ""
+        if not pwd and not (self.instance and self.instance.pk):
+            raise forms.ValidationError("Enter the mailbox password.")
+        return pwd
+
+    def save(self, commit: bool = True):
+        obj = super().save(commit=False)
+        obj.use_ssl = self.cleaned_data["security"] == "ssl"
+        if commit:
+            obj.save()
+        return obj
+
+
+class BackupScheduleForm(forms.ModelForm):
+    """How often a backup job runs by itself. Times are in the project
+    timezone (Europe/Berlin), which is what the user sees on the page."""
+
+    HOUR_CHOICES = [(h, f"{h:02d}") for h in range(24)]
+    MINUTE_CHOICES = [(m, f"{m:02d}") for m in (0, 15, 30, 45)]
+
+    schedule_hour = forms.TypedChoiceField(
+        choices=HOUR_CHOICES, coerce=int, label="Hour",
+    )
+    schedule_minute = forms.TypedChoiceField(
+        choices=MINUTE_CHOICES, coerce=int, label="Minute",
+    )
+    schedule_weekday = forms.TypedChoiceField(
+        choices=BackupJob.WEEKDAY_CHOICES, coerce=int, label="Day",
+    )
+
+    class Meta:
+        model = BackupJob
+        fields = ["schedule", "schedule_hour", "schedule_minute", "schedule_weekday"]
+        labels = {"schedule": "Run automatically"}
+
+    def clean(self):
+        cleaned = super().clean()
+        # Hourly and 6-hourly run on the hour. The form hides the minute field
+        # for those, so pin it here rather than trusting whatever the hidden
+        # input happened to hold.
+        if cleaned.get("schedule") in (BackupJob.SCHEDULE_HOURLY, BackupJob.SCHEDULE_6H):
+            cleaned["schedule_minute"] = 0
+        return cleaned
+
+
+class RestoreJobForm(forms.ModelForm):
+    """Destination mailbox for an import, plus where the messages come from."""
+
+    password = forms.CharField(
+        widget=forms.PasswordInput(
+            render_value=False,
+            attrs={"placeholder": "(leave blank to keep current)"},
+        ),
+        required=False,
+    )
+    security = forms.ChoiceField(choices=SECURITY_CHOICES, required=True, initial="ssl")
+    archive = forms.FileField(
+        required=False,
+        help_text="A backup ZIP, a .zip of .eml/.mbox files, or a single .eml/.mbox.",
+    )
+
+    class Meta:
+        model = RestoreJob
+        fields = ["name", "host", "port", "username", "source_kind", "source_backup"]
+        labels = {
+            "name": "Label",
+            "username": "Email / username",
+            "source_kind": "Import from",
+            "source_backup": "Backup",
+        }
+
+    def __init__(self, *args, user=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["source_backup"].required = False
+        self.fields["source_backup"].queryset = (
+            BackupJob.objects.filter(owner=user) if user
+            else BackupJob.objects.none()
+        )
+        self.fields["source_backup"].empty_label = "— choose a backup —"
+        if self.instance and self.instance.pk:
+            self.fields["security"].initial = "ssl" if self.instance.use_ssl else "none"
+        else:
+            self.fields["password"].required = True
+            self.fields["password"].widget.attrs["placeholder"] = "Mailbox password"
+
+    def clean(self):
+        cleaned = super().clean()
+        kind = cleaned.get("source_kind")
+        editing = bool(self.instance and self.instance.pk)
+
+        if kind == RestoreJob.SOURCE_BACKUP:
+            if not cleaned.get("source_backup"):
+                self.add_error("source_backup", "Pick which backup to import.")
+        else:
+            cleaned["source_backup"] = None
+            # On edit, an archive is already ingested; only require one up front.
+            if not cleaned.get("archive") and not editing:
+                self.add_error("archive", "Choose an archive file to upload.")
+        return cleaned
+
+    def clean_password(self):
+        pwd = self.cleaned_data.get("password") or ""
+        if not pwd and not (self.instance and self.instance.pk):
+            raise forms.ValidationError("Enter the destination mailbox password.")
+        return pwd
+
+    def save(self, commit: bool = True):
+        obj = super().save(commit=False)
+        obj.use_ssl = self.cleaned_data["security"] == "ssl"
+        if commit:
+            obj.save()
+        return obj
+
+
 class ProfileForm(forms.ModelForm):
     notify_email = forms.EmailField(
         required=False,
@@ -113,5 +254,6 @@ class ProfileForm(forms.ModelForm):
         model = UserProfile
         fields = ["notifications_enabled", "notify_email"]
         labels = {
-            "notifications_enabled": "Send me email notifications when a migration phase finishes",
+            "notifications_enabled":
+                "Email me when a migration phase, a mailbox backup or an import finishes",
         }

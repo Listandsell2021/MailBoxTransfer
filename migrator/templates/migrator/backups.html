@@ -1,0 +1,138 @@
+{% extends "migrator/base.html" %}
+{% block title %}Backups{% endblock %}
+{% block content %}
+
+<div class="page-head">
+  <div>
+    <h1>Backups</h1>
+    <p class="page-sub">Archive a whole mailbox — every folder, every message, attachments included. Nothing is ever written to a mail server.</p>
+  </div>
+  <div class="actions">
+    <a class="btn btn-primary" href="{% url 'migrator:backup_new' %}">
+      <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      New backup
+    </a>
+  </div>
+</div>
+
+{% if any_scheduled and not scheduler.running %}
+  <div class="alert warn">
+    <svg class="icon-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+    <div>
+      Backups are scheduled but the scheduler process isn't running, so nothing runs automatically.
+      {% if scheduler.last_seen %}Last seen {{ scheduler.last_seen|date:"Y-m-d H:i" }}.{% else %}It has never checked in.{% endif %}
+      Start it with <code>docker compose up -d scheduler</code>.
+    </div>
+  </div>
+{% endif %}
+
+<div class="card" style="padding: 0; overflow: hidden;">
+  {% if jobs %}
+    <div style="overflow-x:auto;">
+    <table>
+      <thead>
+        <tr>
+          <th style="width:60px;">#</th>
+          <th>Mailbox</th>
+          <th style="width:130px;">Status</th>
+          <th style="width:170px;">Schedule</th>
+          <th style="width:110px;">Messages</th>
+          <th style="width:110px;">Attachments</th>
+          <th style="width:100px;">Size</th>
+          <th style="width:140px;">Last run</th>
+          <th style="width:260px;"></th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for job in jobs %}
+        <tr>
+          <td><span class="muted" style="font-variant-numeric: tabular-nums;" title="Database ID {{ job.id }}">{{ forloop.counter }}</span></td>
+          <td>
+            <div style="display:flex; align-items:center; gap:10px;">
+              <span style="width:28px; height:28px; border-radius:8px; background:linear-gradient(135deg,#0ea5e9,#4f46e5); color:#fff; display:inline-flex; align-items:center; justify-content:center; flex-shrink:0;">
+                <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              </span>
+              <div style="min-width:0;">
+                <b style="color: var(--text);">{{ job.name|default:job.username }}</b>
+                <div class="muted" style="font-size:12.5px;">{{ job.username }} · {{ job.host }}</div>
+              </div>
+            </div>
+          </td>
+          <td>
+            {% if job.status == 'success' %}<span class="pill green">Complete</span>
+            {% elif job.status == 'running' %}<span class="pill sky">Running</span>
+            {% elif job.status == 'failed' %}<span class="pill red">Failed</span>
+            {% else %}<span class="pill grey">Not run</span>{% endif %}
+          </td>
+          <td>
+            {% if job.schedule_is_on %}
+              <div style="font-size:13px; font-weight:500;">{{ job.schedule_description }}</div>
+              <div class="muted" style="font-size:12px;">
+                {% if job.next_run_at %}next {{ job.next_run_at|date:"d M H:i" }}{% else %}not scheduled{% endif %}
+              </div>
+            {% else %}
+              <span class="muted" style="font-size:13px;">Manual only</span>
+            {% endif %}
+          </td>
+          <td style="font-variant-numeric: tabular-nums;">{{ job.message_count }}</td>
+          <td style="font-variant-numeric: tabular-nums;">{{ job.attachment_count }}</td>
+          <td class="muted" style="font-size:13px;">{{ job.storage_display }}</td>
+          <td class="muted" style="font-size:13px;">{{ job.finished_at|date:"Y-m-d H:i"|default:"—" }}</td>
+          <td style="text-align:right; white-space:nowrap;">
+            {% if job.message_count %}
+            <a class="btn btn-grey" href="{% url 'migrator:backup_download' job.id %}" title="Download ZIP archive">
+              <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              Download
+            </a>
+            {% endif %}
+            <a class="btn btn-primary" style="margin-left:6px;" href="{% url 'migrator:backup_detail' job.id %}">
+              Open
+              <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+            </a>
+            <form method="post" action="{% url 'migrator:delete_backup_job' job.id %}" class="js-delete-backup" style="display:inline; margin-left:6px;"
+                  data-label="{{ job.name|default:job.username }}" data-id="{{ job.id }}">
+              {% csrf_token %}
+              <button type="submit" class="btn btn-grey" title="Delete backup" style="color: var(--red); padding: 8px 10px;">
+                <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/></svg>
+              </button>
+            </form>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+  {% else %}
+    <div class="empty">
+      <svg class="icon-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8v13H3V8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg>
+      <b>No backups yet</b>
+      Add a mailbox and download every folder, message and attachment as a ZIP.
+      <div style="margin-top:14px;">
+        <a class="btn btn-primary" href="{% url 'migrator:backup_new' %}">+ New backup</a>
+      </div>
+    </div>
+  {% endif %}
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+document.querySelectorAll('.js-delete-backup').forEach(form => {
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const result = await mtSwal.confirm({
+      title: 'Delete this backup?',
+      html: `<div><b style="color:#0f172a;">${escapeHtml(form.dataset.label)}</b></div>
+             <div style="margin-top:10px;">The archived messages and attachments are removed from the database. Your mailbox on the server is untouched. Download the ZIP first if you still need it.</div>`,
+      confirmText: 'Delete backup',
+      danger: true,
+    });
+    if (result.isConfirmed) form.submit();
+  });
+});
+</script>
+{% endblock %}

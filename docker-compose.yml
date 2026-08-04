@@ -8,6 +8,20 @@ services:
     networks:
       - app
 
+  # Runs mailbox backups whose schedule is due. Same image as web, but it
+  # bypasses the entrypoint (no migrate/collectstatic race with web) and never
+  # serves traffic, so a long backup can't tie up a request thread.
+  scheduler:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    entrypoint: ["python"]
+    command: ["manage.py", "run_scheduled_backups", "--loop", "--interval", "60"]
+    depends_on:
+      - web
+    networks:
+      - app
+
   nginx:
     image: nginx:1.27-alpine
     restart: unless-stopped

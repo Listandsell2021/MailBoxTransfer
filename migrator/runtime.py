@@ -61,11 +61,15 @@ class Hub:
 
 
 class _State:
+    """Hubs and running threads are keyed by an opaque id: a Migration's int pk,
+    or a namespaced string like ``backup:7`` for a standalone BackupJob. The two
+    share this registry but can never collide."""
+
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._creds: dict[int, Credentials] = {}
-        self._hubs: dict[int, Hub] = {}
-        self._threads: dict[tuple[int, str], threading.Thread] = {}
+        self._hubs: dict[int | str, Hub] = {}
+        self._threads: dict[tuple[int | str, str], threading.Thread] = {}
 
     def set_credentials(self, migration_id: int, creds: Credentials) -> None:
         with self._lock:
@@ -75,22 +79,22 @@ class _State:
         with self._lock:
             return self._creds.get(migration_id)
 
-    def hub(self, migration_id: int) -> Hub:
+    def hub(self, key: int | str) -> Hub:
         with self._lock:
-            h = self._hubs.get(migration_id)
+            h = self._hubs.get(key)
             if h is None:
                 h = Hub()
-                self._hubs[migration_id] = h
+                self._hubs[key] = h
             return h
 
-    def is_running(self, migration_id: int, phase: str) -> bool:
+    def is_running(self, key: int | str, phase: str) -> bool:
         with self._lock:
-            t = self._threads.get((migration_id, phase))
+            t = self._threads.get((key, phase))
             return bool(t and t.is_alive())
 
-    def register_thread(self, migration_id: int, phase: str, thread: threading.Thread) -> None:
+    def register_thread(self, key: int | str, phase: str, thread: threading.Thread) -> None:
         with self._lock:
-            self._threads[(migration_id, phase)] = thread
+            self._threads[(key, phase)] = thread
 
 
 STATE = _State()

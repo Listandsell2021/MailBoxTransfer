@@ -1,0 +1,113 @@
+{% extends "migrator/base.html" %}
+{% block title %}{% if job %}Edit backup{% else %}New backup{% endif %} · Mailbox Transfer{% endblock %}
+{% block content %}
+<style>
+  .pw-wrap { position: relative; }
+  .pw-wrap input { padding-right: 40px !important; }
+  .pw-toggle {
+    position: absolute; top: 50%; right: 6px; transform: translateY(-50%);
+    background: transparent; border: 0; padding: 6px; cursor: pointer;
+    color: var(--muted); display: inline-flex; align-items: center;
+    border-radius: 4px;
+  }
+  .pw-toggle:hover { color: var(--text, #111); background: rgba(0,0,0,0.04); }
+  .pw-toggle svg { width: 18px; height: 18px; display: block; }
+  .pw-toggle svg[hidden] { display: none; }
+</style>
+
+<div class="page-head">
+  <div>
+    <h1>{% if job %}Edit mailbox{% else %}New backup{% endif %}</h1>
+    <p class="page-sub">One mailbox to archive. There is no destination — this only ever reads from the server.</p>
+  </div>
+  <div class="actions">
+    <a class="btn btn-grey" href="{% if job %}{% url 'migrator:backup_detail' job.id %}{% else %}{% url 'migrator:backups' %}{% endif %}">Cancel</a>
+  </div>
+</div>
+
+<div class="card" style="max-width: 720px;">
+  <form method="post" novalidate>
+    {% csrf_token %}
+
+    {% if form.non_field_errors %}
+      <div class="alert error">
+        <svg class="icon-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        <div>{{ form.non_field_errors|join:" · " }}</div>
+      </div>
+    {% elif form.errors %}
+      <div class="alert error">
+        <svg class="icon-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        <div>Please correct the highlighted fields.</div>
+      </div>
+    {% endif %}
+
+    <div class="field {% if form.name.errors %}has-error{% endif %}">
+      <label for="id_name">Label <span style="color:var(--muted); font-weight:400;">(optional)</span></label>
+      {{ form.name }}
+      {% if form.name.errors %}<div class="field-error">{{ form.name.errors|join:" · " }}</div>{% endif %}
+    </div>
+
+    <div class="mailbox old" style="margin-top: 6px;">
+      <h3><span class="dot"></span> Mailbox to back up</h3>
+
+      <div class="field {% if form.host.errors %}has-error{% endif %}">
+        <label for="id_host">IMAP host</label>{{ form.host }}
+        {% if form.host.errors %}<div class="field-error">{{ form.host.errors|join:" · " }}</div>{% endif %}
+      </div>
+
+      <div class="row">
+        <div class="field {% if form.port.errors %}has-error{% endif %}" style="max-width: 130px;">
+          <label for="id_port">Port</label>{{ form.port }}
+          {% if form.port.errors %}<div class="field-error">{{ form.port.errors|join:" · " }}</div>{% endif %}
+        </div>
+        <div class="field {% if form.security.errors %}has-error{% endif %}">
+          <label for="id_security">Connection security</label>{{ form.security }}
+          {% if form.security.errors %}<div class="field-error">{{ form.security.errors|join:" · " }}</div>{% endif %}
+        </div>
+      </div>
+
+      <div class="field {% if form.username.errors %}has-error{% endif %}">
+        <label for="id_username">Email / username</label>{{ form.username }}
+        {% if form.username.errors %}<div class="field-error">{{ form.username.errors|join:" · " }}</div>{% endif %}
+      </div>
+
+      <div class="field {% if form.password.errors %}has-error{% endif %}">
+        <label for="id_password">Password <span style="color: var(--muted); font-weight: 400;">· stored encrypted</span></label>
+        <div class="pw-wrap">
+          {{ form.password }}
+          <button type="button" class="pw-toggle" data-target="id_password" aria-label="Show password" tabindex="-1">
+            <svg class="pw-eye"     viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+            <svg class="pw-eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" hidden><path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a19.45 19.45 0 0 1 5.17-5.93"/><path d="M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 8 11 8a19.46 19.46 0 0 1-3.17 4.19"/><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+          </button>
+        </div>
+        {% if form.password.errors %}<div class="field-error">{{ form.password.errors|join:" · " }}</div>{% endif %}
+      </div>
+    </div>
+
+    <div style="margin-top:20px; display:flex; gap:8px; align-items:center;">
+      <button type="submit" class="btn btn-primary">
+        <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+        {% if job %}Save mailbox{% else %}Save and pick folders{% endif %}
+      </button>
+      <span class="muted" style="font-size:13px;">Next: choose which folders to archive.</span>
+    </div>
+  </form>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.querySelectorAll('.pw-toggle').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const input = document.getElementById(btn.dataset.target);
+    if (!input) return;
+    const show = input.type === 'password';
+    input.type = show ? 'text' : 'password';
+    btn.querySelector('.pw-eye').hidden = show;
+    btn.querySelector('.pw-eye-off').hidden = !show;
+    btn.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+  });
+});
+</script>
+{% endblock %}

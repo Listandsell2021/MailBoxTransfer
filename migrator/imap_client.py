@@ -409,3 +409,29 @@ def synthetic_message_id(raw: bytes) -> str:
     """Stable sha-based fallback id for messages without a Message-ID header."""
     import hashlib
     return f"sha256-{hashlib.sha256(raw).hexdigest()}@local"
+
+
+def collect_dedup_ids(client: "ImapClient") -> set[str]:
+    """Dedup-id set for the currently-selected folder.
+
+    Prefers the Message-ID header; for messages without one, falls back to a
+    sha256 of the raw RFC822 — the same key backup, transfer, verify and
+    restore all use, so headerless messages still pair up across servers.
+    Without this a message with no Message-ID looks new every single time.
+    """
+    uid_to_mid = client.fetch_message_ids() or {}
+    ids: set[str] = set()
+    headerless: list[int] = []
+    for uid, mid in uid_to_mid.items():
+        mid = (mid or "").strip()
+        if mid:
+            ids.add(mid)
+        else:
+            headerless.append(uid)
+    for uid in headerless:
+        try:
+            raw, _flags, _idate = client.fetch_message(uid)
+        except Exception:
+            continue
+        ids.add(synthetic_message_id(raw))
+    return ids

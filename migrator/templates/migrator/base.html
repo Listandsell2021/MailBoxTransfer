@@ -663,6 +663,14 @@
       <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
       Migrations
     </a>
+    <a href="{% url 'migrator:backups' %}" class="{% if nav_active == 'backups' %}active{% endif %}">
+      <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8v13H3V8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg>
+      Backups
+    </a>
+    <a href="{% url 'migrator:restores' %}" class="{% if nav_active == 'restores' %}active{% endif %}">
+      <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+      Restore
+    </a>
     {% if user.is_superuser or user.is_staff %}
     <a href="{% url 'migrator:users' %}" class="{% if nav_active == 'users' %}active{% endif %}">
       <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
@@ -674,10 +682,6 @@
       {% if unseen_notifications %}<span class="nav-badge">{{ unseen_notifications }}</span>{% endif %}
     </a>
     {% endif %}
-    <a href="{% url 'migrator:config_new' %}" class="{% if nav_active == 'new' %}active{% endif %}">
-      <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-      New migration
-    </a>
   </nav>
   <div class="user-area">
     <form method="post" action="{% url 'account_logout' %}" class="signout-form" id="signoutForm">
