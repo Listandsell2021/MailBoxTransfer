@@ -23,6 +23,7 @@
         <tr>
           <th style="width:60px;">#</th>
           <th>Destination</th>
+          {% if is_admin_view %}<th style="width:160px;">User</th>{% endif %}
           <th>Source</th>
           <th style="width:120px;">Status</th>
           <th style="width:110px;">Imported</th>
@@ -46,6 +47,12 @@
               </div>
             </div>
           </td>
+          {% if is_admin_view %}
+          <td class="muted" style="font-size:13px;">
+            <div style="font-weight:500; color:var(--text);">{{ job.owner.get_username|default:"—" }}</div>
+            <div style="font-size:12px;">created {{ job.created_at|date:"Y-m-d H:i" }}</div>
+          </td>
+          {% endif %}
           <td>
             <div style="font-size:13px;">{{ job.source_label }}</div>
             <div class="muted" style="font-size:12px;">
@@ -62,6 +69,9 @@
           <td style="font-variant-numeric: tabular-nums;" class="muted">{{ job.skipped }}</td>
           <td class="muted" style="font-size:13px;">{{ job.finished_at|date:"Y-m-d H:i"|default:"—" }}</td>
           <td style="text-align:right; white-space:nowrap;">
+            {% if job.owner_id != request.user.id %}
+              <span class="muted" style="font-size:12px; font-style:italic;" title="Owned by {{ job.owner.get_username|default:'—' }}">view only</span>
+            {% else %}
             <a class="btn btn-primary" href="{% url 'migrator:restore_detail' job.id %}">
               Open
               <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
@@ -73,6 +83,7 @@
                 <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/></svg>
               </button>
             </form>
+            {% endif %}
           </td>
         </tr>
       {% endfor %}

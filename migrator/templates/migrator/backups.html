@@ -34,6 +34,7 @@
         <tr>
           <th style="width:60px;">#</th>
           <th>Mailbox</th>
+          {% if is_admin_view %}<th style="width:160px;">User</th>{% endif %}
           <th style="width:130px;">Status</th>
           <th style="width:170px;">Schedule</th>
           <th style="width:110px;">Messages</th>
@@ -58,6 +59,12 @@
               </div>
             </div>
           </td>
+          {% if is_admin_view %}
+          <td class="muted" style="font-size:13px;">
+            <div style="font-weight:500; color:var(--text);">{{ job.owner.get_username|default:"—" }}</div>
+            <div style="font-size:12px;">created {{ job.created_at|date:"Y-m-d H:i" }}</div>
+          </td>
+          {% endif %}
           <td>
             {% if job.status == 'success' %}<span class="pill green">Complete</span>
             {% elif job.status == 'running' %}<span class="pill sky">Running</span>
@@ -79,6 +86,9 @@
           <td class="muted" style="font-size:13px;">{{ job.storage_display }}</td>
           <td class="muted" style="font-size:13px;">{{ job.finished_at|date:"Y-m-d H:i"|default:"—" }}</td>
           <td style="text-align:right; white-space:nowrap;">
+            {% if job.owner_id != request.user.id %}
+              <span class="muted" style="font-size:12px; font-style:italic;" title="Owned by {{ job.owner.get_username|default:'—' }}">view only</span>
+            {% else %}
             {% if job.message_count %}
             <a class="btn btn-grey" href="{% url 'migrator:backup_download' job.id %}" title="Download ZIP archive">
               <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
@@ -96,6 +106,7 @@
                 <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/></svg>
               </button>
             </form>
+            {% endif %}
           </td>
         </tr>
       {% endfor %}
