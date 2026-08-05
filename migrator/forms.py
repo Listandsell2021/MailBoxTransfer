@@ -1,4 +1,5 @@
 from django import forms
+from django.utils import timezone
 
 from allauth.account.forms import SignupForm
 
@@ -166,10 +167,13 @@ class BackupScheduleForm(forms.ModelForm):
 
     def clean(self):
         cleaned = super().clean()
-        # Hourly and 6-hourly run on the hour. The form hides the minute field
-        # for those, so pin it here rather than trusting whatever the hidden
-        # input happened to hold.
-        if cleaned.get("schedule") in (BackupJob.SCHEDULE_HOURLY, BackupJob.SCHEDULE_6H):
+        # "Every hour" means a full hour from when you saved it: a schedule
+        # saved at 11:27 runs 12:27, 13:27, … So anchor the minute to the save
+        # time rather than trusting whatever the hidden minute field held.
+        # 6-hourly keeps its fixed 00/06/12/18 slots.
+        if cleaned.get("schedule") == BackupJob.SCHEDULE_HOURLY:
+            cleaned["schedule_minute"] = timezone.localtime().minute
+        elif cleaned.get("schedule") == BackupJob.SCHEDULE_6H:
             cleaned["schedule_minute"] = 0
         return cleaned
 

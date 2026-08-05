@@ -285,7 +285,9 @@ class BackupJob(models.Model):
         if self.schedule == self.SCHEDULE_OFF:
             return "Manual only"
         if self.schedule == self.SCHEDULE_HOURLY:
-            return "Every hour, on the hour"
+            # The minute is the one the schedule was saved at, so an hourly job
+            # set up at 11:27 reads "Every hour at :27" and runs 12:27, 13:27…
+            return f"Every hour at :{self.schedule_minute:02d}"
         if self.schedule == self.SCHEDULE_6H:
             return "Every 6 hours (00:00, 06:00, 12:00, 18:00)"
         if self.schedule == self.SCHEDULE_DAILY:

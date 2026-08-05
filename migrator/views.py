@@ -1539,10 +1539,20 @@ def _owned_backup_jobs(user):
     return BackupJob.objects.filter(owner=user)
 
 
+def _visible_backup_jobs(user):
+    """Jobs LISTED for `user`. Admins see every job so they can tell who backed
+    up what and when; the rows are read-only for them (no open, download or
+    delete), so archived mail still never leaves its owner's account. Use
+    _owned_backup_jobs for anything that reads content or acts on a job."""
+    if _is_admin(user):
+        return BackupJob.objects.all()
+    return _owned_backup_jobs(user)
+
+
 @otp_required(login_url="migrator:login")
 def backups(request: HttpRequest) -> HttpResponse:
-    """List the current user's backup jobs with their size on disk."""
-    jobs = list(_owned_backup_jobs(request.user))
+    """List backup jobs with their size on disk — own only, or all for admins."""
+    jobs = list(_visible_backup_jobs(request.user).select_related("owner"))
 
     from django.db.models import Sum
     stored_by_job: dict[int, dict] = {}
@@ -1564,6 +1574,7 @@ def backups(request: HttpRequest) -> HttpResponse:
         "jobs": jobs,
         "scheduler": health(),
         "any_scheduled": any(j.schedule_is_on for j in jobs),
+        "is_admin_view": _is_admin(request.user),
         "nav_active": "backups",
     })
 
@@ -1802,13 +1813,24 @@ def _owned_restore_jobs(user):
     return RestoreJob.objects.filter(owner=user)
 
 
+def _visible_restore_jobs(user):
+    """Imports LISTED for `user` — everyone's for an admin, own only otherwise.
+    Read-only, exactly like _visible_backup_jobs."""
+    if _is_admin(user):
+        return RestoreJob.objects.all()
+    return _owned_restore_jobs(user)
+
+
 @otp_required(login_url="migrator:login")
 def restores(request: HttpRequest) -> HttpResponse:
-    jobs = list(_owned_restore_jobs(request.user).select_related("source_backup"))
+    jobs = list(
+        _visible_restore_jobs(request.user).select_related("source_backup", "owner")
+    )
     for job in jobs:
         job.size_display = _humanize_bytes(job.archive_size)
     return render(request, "migrator/restores.html", {
         "jobs": jobs,
+        "is_admin_view": _is_admin(request.user),
         "nav_active": "restores",
     })
 

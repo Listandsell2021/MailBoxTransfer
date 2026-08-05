@@ -447,7 +447,14 @@ const previewEl = document.getElementById('schedule-preview');
 
 function schedulePreview(v, hh, mm, dayText) {
   if (v === 'hourly') {
-    return 'Runs <b>every hour, on the hour</b> — 13:00, 14:00, 15:00, and so on, around the clock.';
+    // Hourly is anchored to the minute you press Save, so spell out the real
+    // times: saving at 11:27 means 12:27, 13:27, 14:27…
+    const now = new Date();
+    const anchor = String(now.getMinutes()).padStart(2, '0');
+    const slots = [1, 2, 3]
+      .map(n => `${String((now.getHours() + n) % 24).padStart(2, '0')}:${anchor}`)
+      .join(', ');
+    return `Runs <b>every hour at :${anchor}</b> — save now and it runs ${slots}, and so on around the clock.`;
   }
   if (v === '6h') {
     return 'Runs <b>four times a day</b> — 00:00, 06:00, 12:00, 18:00.';
@@ -460,7 +467,8 @@ function schedulePreview(v, hh, mm, dayText) {
 function syncScheduleFields() {
   if (!scheduleSelect) return;
   const v = scheduleSelect.value;
-  // Hourly and 6-hourly run on the hour, so there is no time to pick at all.
+  // Hourly starts an hour after you save and 6-hourly runs on fixed slots, so
+  // neither has a time to pick.
   const showTime = (v === 'daily' || v === 'weekly');
   const showDay = (v === 'weekly');
   document.querySelector('.js-time-field').style.display = showTime ? '' : 'none';
