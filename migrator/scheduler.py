@@ -1,5 +1,9 @@
 """Scheduled backups: work out when each job is next due, and run what's due.
 
+Also the home of the once-a-minute recovery sweep: every tick asks
+`migrator.supervisor` to restart anything left half-done by a process that
+died, which is what makes a server restart survivable.
+
 Ticked by ``manage.py run_scheduled_backups`` (see the `scheduler` service in
 docker-compose.yml). Runs are sequential — one mailbox at a time — so a dozen
 scheduled jobs can't open a dozen IMAP sessions at once.
@@ -206,12 +210,33 @@ def run_due(stdout=None) -> int:
 
 
 def tick(stdout=None) -> int:
-    """One scheduler pass: take the lock, run what's due, record the heartbeat."""
+    """One scheduler pass: take the lock, revive dead work, run what's due,
+    record the heartbeat.
+
+    Recovery comes first and deliberately: a backup the last container was
+    halfway through matters more than a schedule that is a minute late, and
+    picking it up here means a server restart heals itself within a tick
+    instead of waiting for someone to notice a progress bar that stopped
+    moving. See migrator.supervisor.
+    """
     close_old_connections()
     with exclusive_lock() as acquired:
         if not acquired:
             logger.debug("Another scheduler holds the lock; skipping this tick.")
             return 0
+
+        def say(msg: str) -> None:
+            if stdout is not None:
+                stdout.write(f"[{timezone.localtime():%Y-%m-%d %H:%M:%S}] {msg}")
+
+        try:
+            from .supervisor import recover
+
+            recover(say=say)
+        except Exception:
+            # Recovery is best-effort; it must never stop the schedule.
+            logger.exception("Stalled-run recovery failed")
+
         ran = run_due(stdout=stdout)
         beat()
         return ran

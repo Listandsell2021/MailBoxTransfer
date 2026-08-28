@@ -30,7 +30,13 @@ from .models import (
     UserProfile,
     VerificationReport,
 )
-from .runtime import STATE, Credentials, load_credentials
+from .runtime import (
+    STATE,
+    WORKER_ID,
+    Credentials,
+    load_credentials,
+    start_heartbeat,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -41,13 +47,30 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
-def _start_phase(migration: Migration, phase: str) -> PhaseRun:
+def _start_phase(migration: Migration, phase: str, resumed: bool = False) -> PhaseRun:
+    """Open a run row and start heartbeating it.
+
+    Any earlier row for this phase that is still marked running but has gone
+    quiet is closed first, so a resume replaces the crashed run rather than
+    stacking a second "running" row on top of it. `resumed` carries the retry
+    counter forward from that row, which is what stops a phase that dies
+    instantly from being restarted forever.
+    """
+    from .supervisor import close_stalled_phase_runs
+
+    previous = migration.phase_runs.filter(phase=phase).order_by("-id").first()
+    close_stalled_phase_runs(migration.pk, phase)
+
     run = PhaseRun.objects.create(
         migration=migration,
         phase=phase,
         status=PhaseRun.STATUS_RUNNING,
         started_at=timezone.now(),
+        heartbeat_at=timezone.now(),
+        worker=WORKER_ID,
+        resumed_count=(previous.resumed_count + 1) if (resumed and previous) else 0,
     )
+    start_heartbeat(run)
     return run
 
 
@@ -175,7 +198,7 @@ def _collect_verify_ids(client: ImapClient) -> set[str]:
 # ---------------------------------------------------------------------------
 
 
-def run_backup(migration_id: int) -> None:
+def run_backup(migration_id: int, resumed: bool = False) -> None:
     migration = Migration.objects.get(pk=migration_id)
     creds = load_credentials(migration_id)
     hub = STATE.hub(migration_id)
@@ -184,7 +207,7 @@ def run_backup(migration_id: int) -> None:
         _phase_status(hub, "backup", "failed")
         return
 
-    run = _start_phase(migration, PhaseRun.PHASE_BACKUP)
+    run = _start_phase(migration, PhaseRun.PHASE_BACKUP, resumed=resumed)
     _phase_status(hub, "backup", "running")
     _log(hub, "info", "Backup phase started.")
 
@@ -298,7 +321,7 @@ def run_backup(migration_id: int) -> None:
 # ---------------------------------------------------------------------------
 
 
-def run_transfer(migration_id: int) -> None:
+def run_transfer(migration_id: int, resumed: bool = False) -> None:
     migration = Migration.objects.get(pk=migration_id)
     creds = load_credentials(migration_id)
     hub = STATE.hub(migration_id)
@@ -315,7 +338,7 @@ def run_transfer(migration_id: int) -> None:
         _phase_status(hub, "transfer", "failed")
         return
 
-    run = _start_phase(migration, PhaseRun.PHASE_TRANSFER)
+    run = _start_phase(migration, PhaseRun.PHASE_TRANSFER, resumed=resumed)
     _phase_status(hub, "transfer", "running")
     _log(hub, "info", "Transfer phase started.")
 
@@ -426,7 +449,7 @@ def run_transfer(migration_id: int) -> None:
 # ---------------------------------------------------------------------------
 
 
-def run_verify(migration_id: int) -> None:
+def run_verify(migration_id: int, resumed: bool = False) -> None:
     migration = Migration.objects.get(pk=migration_id)
     creds = load_credentials(migration_id)
     hub = STATE.hub(migration_id)
@@ -443,7 +466,7 @@ def run_verify(migration_id: int) -> None:
         _phase_status(hub, "verify", "failed")
         return
 
-    run = _start_phase(migration, PhaseRun.PHASE_VERIFY)
+    run = _start_phase(migration, PhaseRun.PHASE_VERIFY, resumed=resumed)
     _phase_status(hub, "verify", "running")
     _log(hub, "info", "Verify phase started.")
 
@@ -570,7 +593,7 @@ class CleanupGate:
         return all(r["ok"] for r in self.results)
 
 
-def run_cleanup(migration_id: int, confirmed: bool) -> None:
+def run_cleanup(migration_id: int, confirmed: bool, resumed: bool = False) -> None:
     migration = Migration.objects.get(pk=migration_id)
     creds = load_credentials(migration_id)
     hub = STATE.hub(migration_id)
@@ -591,7 +614,7 @@ def run_cleanup(migration_id: int, confirmed: bool) -> None:
         _phase_status(hub, "cleanup", "failed", error="Safety checks failed")
         return
 
-    run = _start_phase(migration, PhaseRun.PHASE_CLEANUP)
+    run = _start_phase(migration, PhaseRun.PHASE_CLEANUP, resumed=resumed)
     _phase_status(hub, "cleanup", "running")
     _log(hub, "info", "Cleanup phase started.")
 
@@ -645,14 +668,20 @@ PHASE_FUNCS = {
 }
 
 
-def launch_phase(migration_id: int, phase: str, **kwargs) -> bool:
+def launch_phase(migration_id: int, phase: str, resumed: bool = False, **kwargs) -> bool:
+    """Start a phase in its own thread. False if this process is already on it.
+
+    `resumed` is set when the supervisor (or a Resume button) is picking a run
+    back up after its process died; every phase skips what it already did, so
+    resuming and re-running are the same code path.
+    """
     if STATE.is_running(migration_id, phase):
         return False
     if phase == PhaseRun.PHASE_CLEANUP:
-        target = lambda: run_cleanup(migration_id, kwargs.get("confirmed", False))
+        target = lambda: run_cleanup(migration_id, kwargs.get("confirmed", False), resumed=resumed)
     else:
         fn = PHASE_FUNCS[phase]
-        target = lambda: fn(migration_id)
+        target = lambda: fn(migration_id, resumed=resumed)
     t = threading.Thread(target=target, name=f"phase-{phase}-{migration_id}", daemon=True)
     STATE.register_thread(migration_id, phase, t)
     t.start()

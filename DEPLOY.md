@@ -242,6 +242,44 @@ mailbox that has a schedule set — a missed backup is never silent.
 
 ---
 
+## Surviving a restart mid-run
+
+Backups, transfers, verifies and restores run in background threads, and a
+thread dies with its container. A deploy, an OOM kill or a `reboot` therefore
+used to leave rows marked `running` that nothing was working on, and a mailbox
+half-copied.
+
+Every run now stamps a heartbeat every 30 seconds. On each tick (once a minute)
+the scheduler looks for runs marked `running` whose heartbeat went quiet and
+starts them again — every phase skips work it already did, so resuming and
+re-running are the same thing and nothing is downloaded or copied twice. **This
+is why the `scheduler` service must be up even if nobody uses schedules.**
+
+Deliberate limits, so one restart can't stampede the box:
+
+| Rule | Value | Why |
+|---|---|---|
+| Presumed dead after | 5 min of silence | ten missed heartbeats |
+| Picked up automatically if it stopped within | 6 hours | older runs are history; nobody is waiting on them |
+| Revived runs in flight at once | 3 | ten interrupted mailboxes come back a few at a time |
+| Automatic resumes per run | 5 | a run that dies instantly is left failed, not retried forever |
+
+Cleanup is never resumed automatically — it deletes mail from the source
+server, so it needs a fresh verification report and the confirmation box again.
+
+In the UI an interrupted run shows an orange **Interrupted** pill with a
+**Resume** button (Report, Migration dashboard, Backup and Restore screens).
+From the shell:
+
+```bash
+docker compose exec -T web python manage.py recover_stuck_runs --list   # what is stuck
+docker compose exec -T web python manage.py recover_stuck_runs          # resume it
+docker compose exec -T web python manage.py recover_stuck_runs --close  # give up on it instead
+docker compose exec -T web python manage.py recover_stuck_runs --force  # resume even old / retry-capped runs
+```
+
+---
+
 ## Backups
 
 The app is stateless — all persistent data is in the **Hetzner MySQL DB**. Make sure:

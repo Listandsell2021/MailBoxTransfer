@@ -69,6 +69,8 @@
   .phase[data-state="success"] .status-pill { background: var(--green-bg); color: #065f46; }
   .phase[data-state="running"] .status-pill { background: #eef2ff; color: #4338ca; }
   .phase[data-state="failed"]  .status-pill { background: var(--red-bg); color: #991b1b; }
+  .phase[data-state="stalled"] .status-pill { background: var(--orange-bg); color: #92400e; }
+  .phase[data-state="stalled"] .num { background: linear-gradient(135deg, #f59e0b, #d97706); }
   .phase[data-state="locked"]  .status-pill { background: var(--subtle); color: var(--muted); }
   .phase[data-state="pending"] .status-pill { background: var(--subtle); color: var(--muted); }
 
@@ -106,12 +108,74 @@
   .stat .value.running { color: var(--primary); }
   .stat .value.failed  { color: var(--red); }
   @media (max-width: 720px) { .stats { grid-template-columns: repeat(2, 1fr); } }
+
+  /* Which mailbox is being copied where. The page is otherwise all verbs and
+     no nouns: four phases, no sign of what they act on. Built as one card so
+     the two mailboxes read as a single route rather than two loose labels —
+     which matters most in the common case where both addresses are identical
+     and only the host tells them apart. */
+  .route {
+    display: inline-flex; align-items: center; gap: 6px;
+    margin-top: 14px; padding: 10px 8px;
+    background: var(--card); border: 1px solid var(--card-border);
+    border-radius: var(--r-lg); box-shadow: var(--card-shadow);
+  }
+  .route .box {
+    display: flex; align-items: center; gap: 10px;
+    padding: 4px 12px; line-height: 1.35;
+  }
+  .route .box .dot {
+    width: 30px; height: 30px; border-radius: 9px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .route .from .dot { background: var(--subtle); color: var(--muted); }
+  .route .to   .dot { background: #eef2ff; color: var(--primary); }
+  .route .addr { font-size: 13.5px; font-weight: 600; color: var(--text); }
+  .route .host {
+    display: block; color: var(--muted); font-size: 11.5px; margin-top: 1px;
+    font-variant-numeric: tabular-nums;
+  }
+  .route .arrow {
+    display: flex; align-items: center; justify-content: center;
+    width: 26px; height: 26px; border-radius: 999px; flex-shrink: 0;
+    background: var(--subtle); color: var(--muted);
+  }
+  @media (max-width: 620px) {
+    .route { flex-direction: column; align-items: stretch; gap: 4px; width: 100%; }
+    .route .arrow { transform: rotate(90deg); margin: 0 auto; }
+  }
 </style>
 
 <div class="page-head">
   <div>
     <h1>Migration phases</h1>
-    <p class="page-sub">Run each phase in order. Live log updates on the right.</p>
+    <p class="page-sub">
+      Run each phase in order. Live log updates on the right.
+      {% if migration.name %}<b>{{ migration.name }}</b> &middot; {% endif %}<span class="muted">#{{ migration.id }}</span>
+    </p>
+    <div class="route">
+      <div class="box from">
+        <span class="dot">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 6L2 7"/></svg>
+        </span>
+        <span>
+          <span class="addr">{{ migration.old_username }}</span>
+          <span class="host">{{ migration.old_host }}:{{ migration.old_port }}</span>
+        </span>
+      </div>
+      <span class="arrow">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+      </span>
+      <div class="box to">
+        <span class="dot">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 6L2 7"/></svg>
+        </span>
+        <span>
+          <span class="addr">{{ migration.new_username }}</span>
+          <span class="host">{{ migration.new_host }}:{{ migration.new_port }}</span>
+        </span>
+      </div>
+    </div>
   </div>
   <div class="actions">
     <a class="btn btn-grey" href="{% url 'migrator:config_edit' migration.id %}">
@@ -158,18 +222,31 @@
   </div>
 </div>
 
+{% if any_stalled %}
+<div class="alert warn">
+  <div>
+    <b>A phase was interrupted.</b> It still says running in the database, but
+    the process working on it is gone — that is what a server or container
+    restart does to a run in flight. Press <b>Resume</b> on the phase below:
+    every phase skips what it already did, so it carries on from where it
+    stopped rather than starting over.
+  </div>
+</div>
+{% endif %}
+
 <div class="grid dash">
   <div class="card phases">
     {% with summary.backup as s %}
-    <div class="phase" data-phase="backup" data-state="{{ s.status }}">
+    <div class="phase" data-phase="backup" data-state="{% if s.stalled %}stalled{% else %}{{ s.status }}{% endif %}">
       <div class="num">1</div>
       <div class="meta">
         <div class="title-row">
           <span class="title">Backup</span>
-          <span class="status-pill js-statustext">{{ s.status|capfirst }}</span>
+          <span class="status-pill js-statustext">{% if s.stalled %}Interrupted{% else %}{{ s.status|capfirst }}{% endif %}</span>
         </div>
         <div class="sub js-subtext">
           {% if s.status == "success" %}{{ s.processed }} messages stored in the database
+          {% elif s.stalled %}Stopped at {{ s.processed }} / {{ s.total }} — the process was killed (server restart). Resume picks up where it left off.
           {% elif s.status == "running" %}{{ s.processed }} / {{ s.total }} messages
           {% elif s.status == "failed" %}{{ s.error|truncatechars:120 }}
           {% else %}Downloads every message into the database for safekeeping.
@@ -185,25 +262,27 @@
       <div class="action">
         <button class="btn run-btn js-runbtn {% if s.status == 'success' %}btn-grey{% else %}btn-sky{% endif %}"
                 data-phase="backup" {% if not can_run.backup %}disabled{% endif %}>
-          {% if s.status == "success" %}Re-run{% elif s.status == "running" %}Running…{% else %}Run{% endif %}
+          {% if s.stalled %}Resume{% elif s.status == "success" %}Re-run{% elif s.status == "running" %}Running…{% else %}Run{% endif %}
         </button>
       </div>
     </div>
     {% endwith %}
 
     {% with summary.transfer as s %}
-    <div class="phase" data-phase="transfer" data-state="{{ s.status }}{% if not can_run.transfer and s.status == 'pending' %} locked{% endif %}">
+    <div class="phase" data-phase="transfer" data-state="{% if s.stalled %}stalled{% else %}{{ s.status }}{% endif %}{% if not can_run.transfer and s.status == 'pending' %} locked{% endif %}">
       <div class="num">2</div>
       <div class="meta">
         <div class="title-row">
           <span class="title">Transfer</span>
           <span class="status-pill js-statustext">
             {% if not can_run.transfer and s.status == "pending" %}Locked
+            {% elif s.stalled %}Interrupted
             {% else %}{{ s.status|capfirst }}{% endif %}
           </span>
         </div>
         <div class="sub js-subtext">
           {% if not can_run.transfer and s.status == "pending" %}Backup must complete first.
+          {% elif s.stalled %}Stopped at {{ s.processed }} / {{ s.total }} — the process was killed (server restart). Resume picks up where it left off.
           {% elif s.status == "running" %}{{ s.processed }} / {{ s.total }} messages
           {% elif s.status == "success" %}{{ s.processed }} messages uploaded
           {% elif s.status == "failed" %}{{ s.error|truncatechars:120 }}
@@ -220,20 +299,21 @@
       <div class="action">
         <button class="btn run-btn js-runbtn {% if s.status == 'success' %}btn-grey{% else %}btn-sky{% endif %}"
                 data-phase="transfer" {% if not can_run.transfer %}disabled{% endif %}>
-          {% if s.status == "success" %}Re-run{% elif s.status == "running" %}Running…{% else %}Run{% endif %}
+          {% if s.stalled %}Resume{% elif s.status == "success" %}Re-run{% elif s.status == "running" %}Running…{% else %}Run{% endif %}
         </button>
       </div>
     </div>
     {% endwith %}
 
     {% with summary.verify as s %}
-    <div class="phase" data-phase="verify" data-state="{{ s.status }}{% if not can_run.verify and s.status == 'pending' %} locked{% endif %}">
+    <div class="phase" data-phase="verify" data-state="{% if s.stalled %}stalled{% else %}{{ s.status }}{% endif %}{% if not can_run.verify and s.status == 'pending' %} locked{% endif %}">
       <div class="num">3</div>
       <div class="meta">
         <div class="title-row">
           <span class="title">Verify</span>
           <span class="status-pill js-statustext">
             {% if not can_run.verify and s.status == "pending" %}Locked
+            {% elif s.stalled %}Interrupted
             {% else %}{{ s.status|capfirst }}{% endif %}
           </span>
         </div>
@@ -251,7 +331,7 @@
         </a>
         <button class="btn run-btn js-runbtn {% if s.status == 'success' %}btn-grey{% else %}btn-sky{% endif %}"
                 data-phase="verify" {% if not can_run.verify %}disabled{% endif %}>
-          {% if s.status == "success" %}Re-run{% elif s.status == "running" %}Running…{% else %}Run{% endif %}
+          {% if s.stalled %}Resume{% elif s.status == "success" %}Re-run{% elif s.status == "running" %}Running…{% else %}Run{% endif %}
         </button>
       </div>
     </div>
@@ -442,5 +522,41 @@ document.querySelectorAll('.run-btn').forEach(btn => {
     }
   });
 });
+
+// ----- Poll the database as well as the event stream -----
+// Hubs are per-process, so a phase the supervisor resumed in the scheduler
+// container publishes its events somewhere this page can't hear. Polling the
+// DB-backed status endpoint keeps the progress bars honest whichever process
+// is actually doing the work — and is how a stalled phase turns itself into a
+// Resume button without the user reloading.
+setInterval(async () => {
+  if (reloadScheduled) return;
+  try {
+    const r = await fetch(`/dashboard/${MIG_ID}/status/`, {credentials: 'same-origin'});
+    if (!r.ok) return;
+    const {summary} = await r.json();
+    for (const [phase, p] of Object.entries(summary || {})) {
+      const card = document.querySelector(`.phase[data-phase="${phase}"]`);
+      if (!card) continue;
+      const wasRunning = card.dataset.state === 'running';
+
+      if (p.stalled) {
+        card.dataset.state = 'stalled';
+        card.querySelector('.js-statustext').textContent = 'Interrupted';
+        setRunBtn(card, 'Resume', false, 'btn-orange');
+      } else if (p.status === 'running') {
+        card.dataset.state = 'running';
+        card.querySelector('.js-statustext').textContent = 'Running';
+        setRunBtn(card, 'Running…', true, 'btn-sky');
+        applyProgress({phase, processed: p.processed, total: p.total});
+      } else if (wasRunning) {
+        // Finished somewhere else; reload so every count on the page agrees.
+        reloadScheduled = true;
+        setTimeout(() => location.reload(), 500);
+        return;
+      }
+    }
+  } catch (e) { /* transient network error — try again next tick */ }
+}, 15000);
 </script>
 {% endblock %}

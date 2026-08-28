@@ -33,7 +33,7 @@ from .imap_client import (
 from .models import (
     BackupMessage, RestoreFolder, RestoreJob, RestoreMessage, UserProfile,
 )
-from .runtime import STATE
+from .runtime import STATE, WORKER_ID, start_heartbeat
 
 
 logger = logging.getLogger(__name__)
@@ -508,7 +508,13 @@ def pair_folders(job: RestoreJob) -> list[RestoreFolder]:
 # Runner
 # ---------------------------------------------------------------------------
 
-def run_restore_job(job_id: int) -> None:
+def run_restore_job(job_id: int, resumed: bool = False) -> None:
+    """Import every mapped folder into the destination mailbox.
+
+    `resumed` marks a run restarted after its process died; messages the
+    destination already holds are skipped either way, so it only carries the
+    retry counter (see migrator.supervisor).
+    """
     job = RestoreJob.objects.get(pk=job_id)
     hub = STATE.hub(hub_key(job_id))
 
@@ -517,12 +523,20 @@ def run_restore_job(job_id: int) -> None:
     job.finished_at = None
     job.processed = job.imported = job.skipped = job.failed = 0
     job.error = ""
+    job.worker = WORKER_ID
+    job.heartbeat_at = timezone.now()
+    job.interrupted = False
+    job.resumed_count = (job.resumed_count + 1) if resumed else 0
     job.save(update_fields=[
         "status", "started_at", "finished_at", "processed",
         "imported", "skipped", "failed", "error",
+        "worker", "heartbeat_at", "interrupted", "resumed_count",
     ])
+    start_heartbeat(job)
     _status(hub, "running")
-    _log(hub, "info", f"Import started into {job.username} @ {job.host}")
+    _log(hub, "info",
+         ("Import resumed into " if resumed else "Import started into ")
+         + f"{job.username} @ {job.host}")
     _log(hub, "info", f"Source: {job.source_label}")
 
     processed = imported = skipped = failed = 0
@@ -678,12 +692,12 @@ def _notify(job: RestoreJob) -> None:
         logger.exception("Import notification email failed (job=%s)", job.pk)
 
 
-def launch_restore_job(job_id: int) -> bool:
+def launch_restore_job(job_id: int, resumed: bool = False) -> bool:
     key = hub_key(job_id)
     if STATE.is_running(key, "restore"):
         return False
     thread = threading.Thread(
-        target=lambda: run_restore_job(job_id),
+        target=lambda: run_restore_job(job_id, resumed=resumed),
         name=f"restore-job-{job_id}", daemon=True,
     )
     STATE.register_thread(key, "restore", thread)

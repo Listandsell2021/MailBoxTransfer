@@ -1,6 +1,54 @@
+from datetime import timedelta
+
 from django.conf import settings
 from django.db import models
 from django.utils import timezone
+
+
+# How often a running job stamps `heartbeat_at`, and how long a stamp has to be
+# missing before the process behind it is presumed dead. Ten missed beats, so a
+# slow IMAP command or a busy database never looks like a crash.
+RUN_HEARTBEAT_EVERY = 30          # seconds
+RUN_STALE_AFTER = timedelta(minutes=5)
+
+
+class LiveRun(models.Model):
+    """Liveness fields for anything that runs in a background thread.
+
+    Threads die with their process, so a deploy, an OOM kill or a server reboot
+    leaves rows that still say "running" with nobody working on them. The runner
+    pings `heartbeat_at` every RUN_HEARTBEAT_EVERY seconds (see
+    runtime.start_heartbeat); a row still marked running whose heartbeat went
+    quiet belongs to a process that no longer exists, and `migrator.supervisor`
+    starts it again.
+
+    Subclasses must have `status`, `started_at` and a "running" status value.
+    """
+
+    # Which process last worked on this row — "host:pid:token", unique per boot.
+    worker = models.CharField(max_length=64, blank=True)
+    heartbeat_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    # True while a row is closed as "the process behind it disappeared", so the
+    # UI can say interrupted rather than failed, and so a resume can be counted.
+    interrupted = models.BooleanField(default=False)
+    # Consecutive automatic resumes. Caps the retry loop for a run that dies
+    # instantly every time (see supervisor.MAX_AUTO_RESUMES).
+    resumed_count = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        abstract = True
+
+    @property
+    def last_sign_of_life(self):
+        return self.heartbeat_at or self.started_at
+
+    @property
+    def is_stalled(self) -> bool:
+        """Marked running, but nothing has been heard from it for too long."""
+        if self.status != "running":
+            return False
+        seen = self.last_sign_of_life
+        return seen is None or timezone.now() - seen > RUN_STALE_AFTER
 
 
 class Migration(models.Model):
@@ -66,7 +114,7 @@ class FolderMapping(models.Model):
         return f"{self.old_folder} -> {self.new_folder or '(skip)'}"
 
 
-class PhaseRun(models.Model):
+class PhaseRun(LiveRun):
     """One execution of one phase (Backup, Transfer, Verify, Cleanup)."""
 
     PHASE_BACKUP = "backup"
@@ -190,7 +238,7 @@ class AccessEvent(models.Model):
         return f"{self.get_kind_display()} from {self.ip_address or '?'} @ {self.last_seen:%Y-%m-%d %H:%M}"
 
 
-class BackupJob(models.Model):
+class BackupJob(LiveRun):
     """A standalone, backup-only mailbox archive.
 
     Unlike `Migration`, this has no destination server and never writes to a
@@ -296,7 +344,7 @@ class BackupJob(models.Model):
         return f"Every {day} at {hhmm}"
 
 
-class RestoreJob(models.Model):
+class RestoreJob(LiveRun):
     """Import archived messages into a mailbox — the reverse of a BackupJob.
 
     The source is either an archive the user uploaded (a ZIP produced by the

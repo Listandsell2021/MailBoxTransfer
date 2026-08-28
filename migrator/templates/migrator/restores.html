@@ -61,6 +61,7 @@
           </td>
           <td>
             {% if job.status == 'success' %}<span class="pill green">Complete</span>
+            {% elif job.is_stalled or job.interrupted %}<span class="pill orange" title="The process running this was killed — open it to pick it back up">Interrupted</span>
             {% elif job.status == 'running' %}<span class="pill sky">Running</span>
             {% elif job.status == 'failed' %}<span class="pill red">Failed</span>
             {% else %}<span class="pill grey">Not run</span>{% endif %}

@@ -94,8 +94,8 @@
       <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" style="color:var(--primary);"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
       Status
     </div>
-    <div class="value {% if job.status == 'success' %}success{% elif job.status == 'running' %}running{% elif job.status == 'failed' %}failed{% endif %}" id="stat-status">
-      {% if job.status == 'pending' %}Not run{% else %}{{ job.get_status_display }}{% endif %}
+    <div class="value {% if job.status == 'success' %}success{% elif job.is_stalled %}failed{% elif job.status == 'running' %}running{% elif job.status == 'failed' %}failed{% endif %}" id="stat-status">
+      {% if job.is_stalled %}Interrupted{% elif job.status == 'pending' %}Not run{% else %}{{ job.get_status_display }}{% endif %}
     </div>
   </div>
   <div class="stat">
@@ -139,7 +139,22 @@
   </div>
 {% endif %}
 
-{% if job.status == 'failed' and job.error %}
+{% if job.is_stalled or job.interrupted %}
+  <div class="alert warn">
+    <svg class="icon-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+    <div>
+      <b>This backup was interrupted.</b> It stopped at {{ job.processed }} of
+      {{ job.total }} message(s), last heard from
+      {{ job.last_sign_of_life|date:"Y-m-d H:i" }} — the process was killed, almost
+      always by a server or container restart. Start it again below: messages
+      already archived are skipped, so it carries on rather than starting over.
+      A run interrupted in the last few hours is picked back up on its own
+      within a minute.
+    </div>
+  </div>
+{% endif %}
+
+{% if job.status == 'failed' and job.error and not job.interrupted %}
   <div class="alert error">
     <svg class="icon-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
     <div>Last run failed: {{ job.error|truncatechars:300 }}</div>
@@ -238,9 +253,9 @@
       </div>
 
       <div class="run-strip">
-        <button class="btn {% if job.status == 'running' %}btn-grey{% else %}btn-sky{% endif %}" id="run-btn"
-                {% if job.status == 'running' or not has_password %}disabled{% endif %}>
-          {% if job.status == 'running' %}Running…{% elif job.status == 'success' %}Run again{% else %}Start backup{% endif %}
+        <button class="btn {% if job.is_stalled %}btn-orange{% elif job.status == 'running' %}btn-grey{% else %}btn-sky{% endif %}" id="run-btn"
+                {% if job.status == 'running' and not job.is_stalled or not has_password %}disabled{% endif %}>
+          {% if job.is_stalled %}Resume backup{% elif job.status == 'running' %}Running…{% elif job.status == 'success' %}Run again{% else %}Start backup{% endif %}
         </button>
         <div class="prog-wrap">
           <div class="progress {% if job.status == 'success' %}success{% endif %}">
@@ -320,7 +335,7 @@ function setRunBtn(label, disabled, klass) {
   runBtn.textContent = label;
   runBtn.disabled = !!disabled;
   if (klass) {
-    runBtn.classList.remove('btn-sky', 'btn-grey');
+    runBtn.classList.remove('btn-sky', 'btn-grey', 'btn-orange');
     runBtn.classList.add(klass);
   }
 }
@@ -499,12 +514,19 @@ setInterval(async () => {
     const r = await fetch(`/backups/${JOB_ID}/status/`, {credentials: 'same-origin'});
     if (!r.ok) return;
     const s = await r.json();
-    if (s.status === 'running') {
+    if (s.status === 'running' && !s.stalled) {
       applyProgress({processed: s.processed, total: s.total});
       const el = document.getElementById('stat-status');
       el.textContent = 'Running';
       el.classList.add('running');
       setRunBtn('Running…', true, 'btn-grey');
+    } else if (s.stalled) {
+      // The worker died. Offer Resume instead of a bar that will never move.
+      const el = document.getElementById('stat-status');
+      el.textContent = 'Interrupted';
+      el.classList.remove('running');
+      el.classList.add('failed');
+      setRunBtn('Resume backup', false, 'btn-orange');
     }
     if (lastStatus === 'running' && s.status !== 'running') {
       reloadScheduled = true;
