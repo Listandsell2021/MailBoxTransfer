@@ -87,21 +87,18 @@
           <td class="muted" style="font-size:13px;">{{ job.storage_display }}</td>
           <td class="muted" style="font-size:13px;">{{ job.finished_at|date:"Y-m-d H:i"|default:"—" }}</td>
           <td class="col-actions" style="text-align:right; white-space:nowrap;">
-            {% if job.owner_id != request.user.id %}
-              <span class="muted" style="font-size:12px; font-style:italic;" title="Owned by {{ job.owner.get_username|default:'—' }}">view only</span>
-            {% else %}
+            {% if job.can_manage %}
             {% if job.message_count %}
             <a class="btn btn-grey" href="{% url 'migrator:backup_download' job.id %}" title="Download ZIP archive">
               <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-              Download
             </a>
             {% endif %}
             <a class="btn btn-primary" style="margin-left:6px;" href="{% url 'migrator:backup_detail' job.id %}">
-              Open
               <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
             </a>
             <form method="post" action="{% url 'migrator:delete_backup_job' job.id %}" class="js-delete-backup" style="display:inline; margin-left:6px;"
-                  data-label="{{ job.name|default:job.username }}" data-id="{{ job.id }}">
+                  data-label="{{ job.name|default:job.username }}" data-id="{{ job.id }}"
+                  data-owner="{% if job.owner_id != request.user.id %}{{ job.owner.get_username|default:'another user' }}{% endif %}">
               {% csrf_token %}
               <button type="submit" class="btn btn-grey" title="Delete backup" style="color: var(--red); padding: 8px 10px;">
                 <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/></svg>
@@ -136,10 +133,12 @@ function escapeHtml(s) {
 document.querySelectorAll('.js-delete-backup').forEach(form => {
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
+    const owner = form.dataset.owner;
     const result = await mtSwal.confirm({
-      title: 'Delete this backup?',
+      title: owner ? `Delete ${escapeHtml(owner)}'s backup?` : 'Delete this backup?',
       html: `<div><b style="color:#0f172a;">${escapeHtml(form.dataset.label)}</b></div>
-             <div style="margin-top:10px;">The archived messages and attachments are removed from the database. Your mailbox on the server is untouched. Download the ZIP first if you still need it.</div>`,
+             ${owner ? `<div style="margin-top:10px; color:#991b1b;"><b>This belongs to ${escapeHtml(owner)}, not to you.</b> You are deleting it as an admin.</div>` : ''}
+             <div style="margin-top:10px;">The archived messages and attachments are removed from the database. The mailbox on the server is untouched. Download the ZIP first if it is still needed.</div>`,
       confirmText: 'Delete backup',
       danger: true,
     });
