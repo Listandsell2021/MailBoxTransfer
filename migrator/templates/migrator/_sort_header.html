@@ -1,0 +1,16 @@
+{% comment %}
+One sortable column header.
+
+    {% include "migrator/_sort_header.html" with col=sortcols.label label="Label" %}
+
+`col` is a {url, active, dir} dict from the view; `width` is optional. Kept as
+a partial because six copies of the arrow logic inline is how the arrows end up
+disagreeing with each other.
+{% endcomment %}
+<th class="sortable{% if col.active %} sorted{% endif %}"{% if width %} style="width:{{ width }};"{% endif %}>
+  <a class="sort" href="{{ col.url }}"
+     title="{% if col.active %}Sorted by {{ label|lower }}, {% if col.dir == 'asc' %}ascending — click for descending{% else %}descending — click for ascending{% endif %}{% else %}Sort by {{ label|lower }}{% endif %}">
+    {{ label }}
+    <span class="ind">{% if col.active %}{% if col.dir == 'asc' %}&#9650;{% else %}&#9660;{% endif %}{% else %}&#8645;{% endif %}</span>
+  </a>
+</th>

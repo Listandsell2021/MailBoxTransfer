@@ -304,8 +304,8 @@ class HeartbeatTests(TestCase):
 
 
 class ResumePermissionTests(TestCase):
-    """Who may press Resume. Admins can pick up an interrupted run on someone
-    else's migration; starting a phase from scratch stays with the owner."""
+    """Who may press Resume. Admins act on every migration; a user who owns
+    neither sees nothing at all."""
 
     def setUp(self):
         User = get_user_model()
@@ -354,17 +354,135 @@ class ResumePermissionTests(TestCase):
         self.assertEqual(self._post().status_code, 302)
         resume.assert_called_once()
 
-    @mock.patch("migrator.views.launch_phase")
-    def test_admin_cannot_start_a_phase_that_was_never_interrupted(self, launch):
+    @mock.patch("migrator.views.load_credentials", return_value=object())
+    @mock.patch("migrator.views.launch_phase", return_value=True)
+    def test_admin_can_start_a_phase_on_someone_elses_migration(self, launch, _creds):
+        """Admins run this service; a mailbox belonging to a user who has gone
+        home is theirs to move along."""
         self._sign_in(self.admin)
         self.assertEqual(self._post().status_code, 302)
-        launch.assert_not_called()
+        launch.assert_called_once()
 
     def test_a_stranger_gets_a_404(self):
         self._stalled_backup()
         self._sign_in(self.other)
         self.assertEqual(self._post().status_code, 404)
 
+    def test_admin_can_open_a_dashboard_they_do_not_own(self):
+        self._sign_in(self.admin)
+        self.assertEqual(
+            self.client.get(f"/dashboard/{self.migration.pk}/").status_code, 200,
+        )
+
+    def test_a_stranger_cannot_open_that_dashboard(self):
+        self._sign_in(self.other)
+        self.assertEqual(
+            self.client.get(f"/dashboard/{self.migration.pk}/").status_code, 404,
+        )
+
+    def test_the_list_marks_every_row_manageable_for_an_admin(self):
+        self._sign_in(self.admin)
+        rows = self.client.get("/migrations/").context["migrations"]
+        self.assertTrue(all(m.can_manage for m in rows))
+
+    def test_the_list_marks_only_your_own_rows_manageable(self):
+        self._sign_in(self.other)
+        Migration.objects.create(old_host="a", old_username="a", new_host="b",
+                                 new_username="b", owner=self.other)
+        rows = self.client.get("/migrations/").context["migrations"]
+        self.assertEqual([m.can_manage for m in rows], [True])
+
     def test_cleanup_is_not_resumable_from_here(self):
         self._sign_in(self.owner)
         self.assertEqual(self._post(PhaseRun.PHASE_CLEANUP).status_code, 400)
+
+
+class MigrationListTests(TestCase):
+    """Sorting and status filtering on the migrations list."""
+
+    def setUp(self):
+        User = get_user_model()
+        self.admin = User.objects.create_user("admin", password="x", is_staff=True)
+        self.zoe = User.objects.create_user("zoe", password="x")
+
+        # Deliberately created in an order that matches none of the sorts.
+        self.b = self._migration("beta", "b@x.de", owner=self.zoe)
+        self.a = self._migration("alpha", "a@x.de", owner=self.admin)
+        self.c = self._migration("gamma", "c@x.de", owner=self.admin)
+
+        PhaseRun.objects.create(migration=self.a, phase=PhaseRun.PHASE_BACKUP,
+                                status=PhaseRun.STATUS_SUCCESS)
+        for phase in (PhaseRun.PHASE_BACKUP, PhaseRun.PHASE_TRANSFER):
+            PhaseRun.objects.create(migration=self.b, phase=phase,
+                                    status=PhaseRun.STATUS_SUCCESS)
+        # self.c has no runs at all -> not-started
+
+    def _migration(self, name, addr, owner):
+        return Migration.objects.create(
+            name=name, owner=owner,
+            old_host="old.example.com", old_username=addr,
+            new_host="new.example.com", new_username=addr,
+        )
+
+    def _sign_in(self):
+        from django_otp.plugins.otp_static.models import StaticDevice
+
+        device = StaticDevice.objects.create(user=self.admin, name="test")
+        self.client.force_login(self.admin)
+        session = self.client.session
+        session["otp_device_id"] = device.persistent_id
+        session.save()
+
+    def _rows(self, query=""):
+        self._sign_in()
+        response = self.client.get("/migrations/" + query)
+        self.assertEqual(response.status_code, 200)
+        return [m.name for m in response.context["migrations"]]
+
+    def test_sorts_by_label_both_ways(self):
+        self.assertEqual(self._rows("?sort=label&dir=asc"), ["alpha", "beta", "gamma"])
+        self.assertEqual(self._rows("?sort=label&dir=desc"), ["gamma", "beta", "alpha"])
+
+    def test_sorts_by_source_address(self):
+        self.assertEqual(self._rows("?sort=source&dir=asc"), ["alpha", "beta", "gamma"])
+
+    def test_sorts_by_owner(self):
+        self.assertEqual(self._rows("?sort=owner&dir=asc")[-1], "beta")  # zoe last
+
+    def test_status_sorts_by_progress_not_alphabetically(self):
+        """not-started < backed-up < transferred. Alphabetically 'backed-up'
+        would lead and the ordering would mean nothing."""
+        self.assertEqual(self._rows("?sort=status&dir=asc"), ["gamma", "alpha", "beta"])
+        self.assertEqual(self._rows("?sort=status&dir=desc"), ["beta", "alpha", "gamma"])
+
+    def test_filters_by_status(self):
+        self.assertEqual(self._rows("?status=transferred"), ["beta"])
+        self.assertEqual(self._rows("?status=not-started"), ["gamma"])
+
+    def test_filter_and_sort_compose(self):
+        rows = self._rows("?status=backed-up&sort=label&dir=desc")
+        self.assertEqual(rows, ["alpha"])
+
+    def test_counts_describe_everything_not_just_the_filtered_slice(self):
+        self._sign_in()
+        ctx = self.client.get("/migrations/?status=transferred").context
+        self.assertEqual(ctx["total_count"], 3)
+        self.assertEqual(ctx["shown_count"], 1)
+        counts = {c["value"]: c["count"] for c in ctx["status_choices"]}
+        self.assertEqual(counts["not-started"], 1)
+        self.assertEqual(counts["backed-up"], 1)
+        self.assertEqual(counts["transferred"], 1)
+
+    def test_a_junk_sort_or_status_falls_back_instead_of_erroring(self):
+        self._sign_in()
+        response = self.client.get("/migrations/?sort=DROP+TABLE&dir=sideways&status=nope")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["sort"], "created")
+        self.assertEqual(response.context["dir"], "desc")
+        self.assertEqual(response.context["status_filter"], "")
+        self.assertEqual(len(response.context["migrations"]), 3)
+
+    def test_sort_links_keep_the_active_filter(self):
+        self._sign_in()
+        ctx = self.client.get("/migrations/?status=backed-up").context
+        self.assertIn("status=backed-up", ctx["sortcols"]["label"]["url"])
