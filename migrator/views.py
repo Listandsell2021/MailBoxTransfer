@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import json
 import re
+from urllib.parse import urlencode
 import tempfile
 import time
 import zipfile
@@ -167,13 +168,19 @@ def _humanize_bytes(n: int | None) -> str:
     return f"{n:.1f} TB"
 
 
-def _owned_migrations(user):
+def _editable_migrations(user):
     """Queryset of migrations the user can ACT on (edit, run, backup, delete).
-    No admin elevation — admins must use the Django admin to touch someone
-    else's data. This prevents an admin from accidentally running phases or
-    deleting backups on a user's behalf."""
+
+    Admins can act on every migration, not only their own: they run this
+    service, and a stuck mailbox belonging to a user who has gone home is
+    theirs to fix. That is a deliberate reversal of the earlier rule — it does
+    mean an admin can delete another user's archived mail, so the delete
+    confirmation names the owner.
+    """
     if not (user and user.is_authenticated):
         return Migration.objects.none()
+    if _is_admin(user):
+        return Migration.objects.all()
     return Migration.objects.filter(owner=user)
 
 
@@ -258,15 +265,7 @@ def home(request: HttpRequest) -> HttpResponse:
     recent = list(qs.order_by("-created_at")[:5])
     for m in recent:
         phases = _phase_summary(m)
-        m.overall_status = (
-            "complete" if phases["cleanup"]["status"] == PhaseRun.STATUS_SUCCESS
-            else "verified" if phases["verify"]["status"] == PhaseRun.STATUS_SUCCESS
-            else "transferred" if phases["transfer"]["status"] == PhaseRun.STATUS_SUCCESS
-            else "backed-up" if phases["backup"]["status"] == PhaseRun.STATUS_SUCCESS
-            else "interrupted" if any(p["stalled"] or p["interrupted"] for p in phases.values())
-            else "in-progress" if any(p["status"] == PhaseRun.STATUS_RUNNING for p in phases.values())
-            else "not-started"
-        )
+        m.overall_status = _overall_status(phases)
 
     user_count = None
     pending_approvals = 0
@@ -361,17 +360,107 @@ def home(request: HttpRequest) -> HttpResponse:
 # Index / list
 # ---------------------------------------------------------------------------
 
+# Sortable columns on the migrations list -> the field to order by. `status`
+# is None because it isn't a column: it's derived from the phase runs, so it is
+# ranked in Python below.
+MIGRATION_SORTS = {
+    "label": "name",
+    "owner": "owner__username",
+    "source": "old_username",
+    "destination": "new_username",
+    "status": None,
+    "created": "created_at",
+}
+
+# Ascending status means least-far-along first, which is what someone sorting
+# by status actually wants: alphabetical would put "complete" above
+# "in-progress" and tell them nothing.
+STATUS_RANK = {
+    "not-started": 0,
+    "interrupted": 1,
+    "in-progress": 2,
+    "backed-up": 3,
+    "transferred": 4,
+    "verified": 5,
+    "complete": 6,
+}
+
+
 @otp_required(login_url="migrator:login")
 def index(request: HttpRequest) -> HttpResponse:
-    migrations = (
+    sort = request.GET.get("sort", "created")
+    if sort not in MIGRATION_SORTS:
+        sort = "created"
+    direction = "asc" if request.GET.get("dir") == "asc" else "desc"
+    wanted_status = request.GET.get("status", "")
+    if wanted_status not in STATUS_RANK:
+        wanted_status = ""
+
+    field = MIGRATION_SORTS[sort]
+    qs = (
         _user_migrations(request.user)
+        .select_related("owner")            # the Owner column, in one query
         .annotate(phase_count=Count("phase_runs"))
-        .order_by("-created_at")
     )
+    # A stable tiebreak on -id keeps rows from shuffling between page loads when
+    # a sort key repeats — every mailbox on one domain shares a host, say.
+    qs = qs.order_by(
+        *([f"{'' if direction == 'asc' else '-'}{field}", "-id"] if field else ["-created_at"])
+    )
+
+    migrations = list(qs)
+    statuses = _overall_statuses(migrations)
+    is_admin = _is_admin(request.user)
+    for m in migrations:
+        m.overall_status = statuses[m.pk]
+        # Admins manage every row; everyone else only their own.
+        m.can_manage = is_admin or m.owner_id == request.user.id
+
+    # Counted before filtering, so the dropdown always shows the whole picture
+    # rather than only the slice already on screen.
+    counts: dict[str, int] = {}
+    for m in migrations:
+        counts[m.overall_status] = counts.get(m.overall_status, 0) + 1
+    total = len(migrations)
+
+    if wanted_status:
+        migrations = [m for m in migrations if m.overall_status == wanted_status]
+    if field is None:
+        migrations.sort(
+            key=lambda m: (STATUS_RANK[m.overall_status], -m.pk),
+            reverse=(direction == "desc"),
+        )
+
+    def link(column: str) -> dict:
+        """Where this header points, and which arrow it shows."""
+        active = column == sort
+        # Clicking the active column flips it; a fresh column starts ascending,
+        # except Created, where newest-first is what anyone means by "sort by
+        # date" on a list of jobs.
+        if active:
+            nxt = "desc" if direction == "asc" else "asc"
+        else:
+            nxt = "desc" if column == "created" else "asc"
+        params = {"sort": column, "dir": nxt}
+        if wanted_status:
+            params["status"] = wanted_status
+        return {"url": "?" + urlencode(params), "active": active,
+                "dir": direction if active else ""}
+
     return render(request, "migrator/index.html", {
         "migrations": migrations,
         "is_admin_view": _is_admin(request.user),
         "nav_active": "migrations",
+        "sortcols": {c: link(c) for c in MIGRATION_SORTS},
+        "sort": sort,
+        "dir": direction,
+        "status_filter": wanted_status,
+        "status_choices": [
+            {"value": v, "label": v.replace("-", " ").title(), "count": counts.get(v, 0)}
+            for v in STATUS_RANK
+        ],
+        "total_count": total,
+        "shown_count": len(migrations),
     })
 
 
@@ -627,7 +716,7 @@ def clear_notifications(request: HttpRequest) -> HttpResponse:
 
 @otp_required(login_url="migrator:login")
 def config(request: HttpRequest, migration_id: int | None = None) -> HttpResponse:
-    migration = get_object_or_404(_owned_migrations(request.user), pk=migration_id) if migration_id else None
+    migration = get_object_or_404(_editable_migrations(request.user), pk=migration_id) if migration_id else None
 
     if request.method == "POST":
         form = MigrationForm(request.POST, instance=migration)
@@ -685,7 +774,7 @@ def config(request: HttpRequest, migration_id: int | None = None) -> HttpRespons
 @otp_required(login_url="migrator:login")
 @require_POST
 def test_connection(request: HttpRequest, migration_id: int) -> HttpResponse:
-    migration = get_object_or_404(_owned_migrations(request.user), pk=migration_id)
+    migration = get_object_or_404(_editable_migrations(request.user), pk=migration_id)
     creds = load_credentials(migration_id)
     if not creds:
         return JsonResponse({"ok": False, "error": "No credentials saved yet. Save the form first."}, status=400)
@@ -854,7 +943,7 @@ def _persist_mapping_payload(migration: Migration, raw: str) -> int:
 @otp_required(login_url="migrator:login")
 @require_POST
 def save_mapping(request: HttpRequest, migration_id: int) -> HttpResponse:
-    migration = get_object_or_404(_owned_migrations(request.user), pk=migration_id)
+    migration = get_object_or_404(_editable_migrations(request.user), pk=migration_id)
     saved = _persist_mapping_payload(migration, request.POST.get("payload", ""))
     return JsonResponse({"ok": True, "saved": saved})
 
@@ -886,9 +975,63 @@ def _phase_summary(migration: Migration) -> dict[str, dict]:
     return out
 
 
+def _overall_status(phases: dict[str, dict]) -> str:
+    """The one word that describes a migration, from its per-phase summary.
+
+    Shared by the list, the home screen and the report so the three can't drift
+    apart. Reads only `status`, `stalled` and `interrupted`, so it works on the
+    trimmed summaries `_overall_statuses` builds as well as on full ones.
+    """
+    if phases["cleanup"]["status"] == PhaseRun.STATUS_SUCCESS:
+        return "complete"
+    if phases["verify"]["status"] == PhaseRun.STATUS_SUCCESS:
+        return "verified"
+    if phases["transfer"]["status"] == PhaseRun.STATUS_SUCCESS:
+        return "transferred"
+    if phases["backup"]["status"] == PhaseRun.STATUS_SUCCESS:
+        return "backed-up"
+    if any(p["stalled"] or p["interrupted"] for p in phases.values()):
+        return "interrupted"
+    if any(p["status"] == PhaseRun.STATUS_RUNNING for p in phases.values()):
+        return "in-progress"
+    return "not-started"
+
+
+def _overall_statuses(migrations) -> dict[int, str]:
+    """{migration_id: overall status} for a whole page of migrations.
+
+    One query for every phase run, rather than the four per row `_phase_summary`
+    would cost — the list runs to a hundred migrations. `error` and `log_path`
+    are deferred because a status pill never shows them and they carry whole
+    tracebacks.
+    """
+    ids = [m.pk for m in migrations]
+    latest: dict[tuple[int, str], PhaseRun] = {}
+    for run in (
+        PhaseRun.objects.filter(migration_id__in=ids)
+        .defer("error", "log_path").order_by("id")
+    ):
+        # Ascending id, so the last write for a (migration, phase) is its
+        # newest run — the same one _phase_summary picks.
+        latest[(run.migration_id, run.phase)] = run
+
+    out = {}
+    for mid in ids:
+        phases = {}
+        for phase, _label in PhaseRun.PHASE_CHOICES:
+            run = latest.get((mid, phase))
+            phases[phase] = {
+                "status": run.status if run else PhaseRun.STATUS_PENDING,
+                "stalled": bool(run and run.is_stalled),
+                "interrupted": bool(run and run.interrupted),
+            }
+        out[mid] = _overall_status(phases)
+    return out
+
+
 @otp_required(login_url="migrator:login")
 def dashboard(request: HttpRequest, migration_id: int) -> HttpResponse:
-    migration = get_object_or_404(_owned_migrations(request.user), pk=migration_id)
+    migration = get_object_or_404(_editable_migrations(request.user), pk=migration_id)
     summary = _phase_summary(migration)
     has_creds = bool(load_credentials(migration_id))
 
@@ -919,7 +1062,7 @@ def start_phase(request: HttpRequest, migration_id: int, phase: str) -> HttpResp
         return HttpResponseBadRequest("unknown phase")
     if phase == PhaseRun.PHASE_CLEANUP:
         return HttpResponseBadRequest("use cleanup endpoint")
-    migration = get_object_or_404(_owned_migrations(request.user), pk=migration_id)
+    migration = get_object_or_404(_editable_migrations(request.user), pk=migration_id)
     if not load_credentials(migration.pk):
         return JsonResponse({"ok": False, "error": "No credentials saved for this migration"}, status=400)
     started = launch_phase(migration.pk, phase)
@@ -929,7 +1072,7 @@ def start_phase(request: HttpRequest, migration_id: int, phase: str) -> HttpResp
 @otp_required(login_url="migrator:login")
 @require_GET
 def phase_status(request: HttpRequest, migration_id: int) -> HttpResponse:
-    migration = get_object_or_404(_owned_migrations(request.user), pk=migration_id)
+    migration = get_object_or_404(_editable_migrations(request.user), pk=migration_id)
     return JsonResponse({"summary": {
         k: {**v, "started": v["started"].isoformat() if v["started"] else None,
             "finished": v["finished"].isoformat() if v["finished"] else None}
@@ -947,12 +1090,6 @@ def resume_phase(request: HttpRequest, migration_id: int, phase: str) -> HttpRes
     screen — where a stalled run is usually spotted — can offer the same thing
     without JavaScript, closing the dead run row on the way through.
 
-    Admins may resume a run on a migration they don't own, which is the one
-    place `_owned_migrations` is relaxed. Resuming isn't acting on someone
-    else's behalf so much as unblocking work they already started: the
-    supervisor picks the same runs up by itself, owner or not, and this only
-    makes it happen now instead of on the next tick. *Starting* a phase that
-    was never interrupted stays with the owner.
     """
     from .supervisor import resume_phase_run
 
@@ -960,20 +1097,13 @@ def resume_phase(request: HttpRequest, migration_id: int, phase: str) -> HttpRes
         return HttpResponseBadRequest("unknown phase")
     if phase == PhaseRun.PHASE_CLEANUP:
         return HttpResponseBadRequest("cleanup is re-run from the verification screen")
-    migration = get_object_or_404(_user_migrations(request.user), pk=migration_id)
-    owns = _owned_migrations(request.user).filter(pk=migration.pk).exists()
+    migration = get_object_or_404(_editable_migrations(request.user), pk=migration_id)
 
     run = migration.phase_runs.filter(phase=phase).order_by("-id").first()
     label = dict(PhaseRun.PHASE_CHOICES).get(phase, phase)
     interrupted = run is not None and (run.is_stalled or run.interrupted)
 
-    if not interrupted and not owns:
-        messages.error(
-            request,
-            f"{label} has nothing to resume, and only the owner can start a "
-            f"phase on this migration.",
-        )
-    elif run is None or not run.is_stalled:
+    if run is None or not run.is_stalled:
         # Nothing dead to revive right now: it never ran, it is genuinely
         # alive, or the sweep already closed it. Starting it does the resuming.
         if not load_credentials(migration.pk):
@@ -1015,7 +1145,7 @@ def log_snapshot(request: HttpRequest, migration_id: int) -> JsonResponse:
     snapshot at page-load and opening SSE from the returned max_seq separates
     the two cleanly.
     """
-    migration = get_object_or_404(_owned_migrations(request.user), pk=migration_id)
+    migration = get_object_or_404(_editable_migrations(request.user), pk=migration_id)
     hub = STATE.hub(migration.pk)
     events, max_seq = hub.snapshot()
     return JsonResponse({"events": events, "max_seq": max_seq})
@@ -1024,7 +1154,7 @@ def log_snapshot(request: HttpRequest, migration_id: int) -> JsonResponse:
 @otp_required(login_url="migrator:login")
 @csrf_exempt
 def sse_stream(request: HttpRequest, migration_id: int) -> StreamingHttpResponse:
-    migration = get_object_or_404(_owned_migrations(request.user), pk=migration_id)
+    migration = get_object_or_404(_editable_migrations(request.user), pk=migration_id)
     return _sse_response(request, STATE.hub(migration.pk))
 
 
@@ -1068,7 +1198,7 @@ def _sse_response(request: HttpRequest, hub) -> StreamingHttpResponse:
 
 @otp_required(login_url="migrator:login")
 def verification(request: HttpRequest, migration_id: int) -> HttpResponse:
-    migration = get_object_or_404(_owned_migrations(request.user), pk=migration_id)
+    migration = get_object_or_404(_editable_migrations(request.user), pk=migration_id)
     report = getattr(migration, "verification", None)
 
     folder_rows = []
@@ -1110,7 +1240,7 @@ def _safe_label(migration: Migration) -> str:
 @require_GET
 def download_backup(request: HttpRequest, migration_id: int) -> HttpResponse:
     """Stream a ZIP of one .mbox file per folder, built from MessageRecord.raw_bytes."""
-    migration = get_object_or_404(_owned_migrations(request.user), pk=migration_id)
+    migration = get_object_or_404(_editable_migrations(request.user), pk=migration_id)
 
     folders_in_db = list(
         MessageRecord.objects.filter(migration=migration, backed_up=True)
@@ -1233,15 +1363,7 @@ def _build_report_context(migration: Migration) -> dict:
         if (p["stalled"] or p["interrupted"]) and key != PhaseRun.PHASE_CLEANUP
     ]
 
-    overall_status = (
-        "complete" if phases["cleanup"]["status"] == PhaseRun.STATUS_SUCCESS
-        else "verified" if phases["verify"]["status"] == PhaseRun.STATUS_SUCCESS
-        else "transferred" if phases["transfer"]["status"] == PhaseRun.STATUS_SUCCESS
-        else "backed-up" if phases["backup"]["status"] == PhaseRun.STATUS_SUCCESS
-        else "interrupted" if any(p["stalled"] or p["interrupted"] for p in phases.values())
-        else "in-progress" if any(p["status"] == PhaseRun.STATUS_RUNNING for p in phases.values())
-        else "not-started"
-    )
+    overall_status = _overall_status(phases)
 
     return {
         "migration": migration,
@@ -1611,7 +1733,7 @@ def download_report_pdf(request: HttpRequest, migration_id: int) -> HttpResponse
 @otp_required(login_url="migrator:login")
 @require_POST
 def delete_migration(request: HttpRequest, migration_id: int) -> HttpResponse:
-    migration = get_object_or_404(_owned_migrations(request.user), pk=migration_id)
+    migration = get_object_or_404(_editable_migrations(request.user), pk=migration_id)
     migration.delete()
     STATE.set_credentials(migration_id, Credentials())
     return redirect("migrator:index")
@@ -2126,7 +2248,7 @@ def delete_restore_job(request: HttpRequest, job_id: int) -> HttpResponse:
 @otp_required(login_url="migrator:login")
 @require_POST
 def start_cleanup(request: HttpRequest, migration_id: int) -> HttpResponse:
-    migration = get_object_or_404(_owned_migrations(request.user), pk=migration_id)
+    migration = get_object_or_404(_editable_migrations(request.user), pk=migration_id)
     confirmed = request.POST.get("confirm") == "yes"
     if not confirmed:
         return JsonResponse({"ok": False, "error": "Confirmation checkbox required"}, status=400)

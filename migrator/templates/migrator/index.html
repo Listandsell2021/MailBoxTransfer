@@ -1,6 +1,43 @@
 {% extends "migrator/base.html" %}
 {% block content %}
 
+<style>
+  /* Sortable column headers. The arrow is always present (a faint up/down pair
+     when inactive) so the columns don't jump width as you click between them,
+     and so it's visible that they can be clicked at all. */
+  th.sortable { padding: 0; }
+  th.sortable a.sort {
+    display: flex; align-items: center; gap: 6px;
+    padding: 11px 14px; cursor: pointer;
+    color: inherit; text-decoration: none; font: inherit;
+    letter-spacing: inherit; text-transform: inherit;
+    transition: background .12s, color .12s;
+  }
+  th.sortable a.sort .ind {
+    font-size: 9px; line-height: 1; color: var(--muted); opacity: .55;
+    transition: opacity .12s, color .12s;
+  }
+  th.sortable a.sort:hover { background: #eef2ff; color: var(--primary); }
+  th.sortable a.sort:hover .ind { color: var(--primary); opacity: 1; }
+  /* The column actually in force: tinted cell, indigo label, solid arrow. */
+  th.sorted { background: #eef2ff; box-shadow: inset 0 -2px 0 var(--primary); }
+  th.sorted a.sort { color: var(--primary); }
+  th.sorted a.sort .ind { color: var(--primary); opacity: 1; font-size: 10px; }
+
+  .toolbar {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    padding: 12px 16px; border-bottom: 1px solid var(--card-border);
+    background: #fafbfc;
+  }
+  .toolbar form { display: flex; align-items: center; gap: 8px; }
+  .toolbar label {
+    font-size: 11px; font-weight: 600; color: var(--muted);
+    text-transform: uppercase; letter-spacing: .05em;
+  }
+  .toolbar select { width: auto; min-width: 190px; padding: 7px 32px 7px 11px; font-size: 13px; }
+  .toolbar .count { margin-left: auto; font-size: 12.5px; color: var(--muted); }
+</style>
+
 <div class="page-head">
   <div>
     <h1>Migrations</h1>
@@ -15,16 +52,39 @@
 </div>
 
 <div class="card" style="padding: 0; overflow: hidden;">
+  <div class="toolbar">
+    <form method="get">
+      <input type="hidden" name="sort" value="{{ sort }}">
+      <input type="hidden" name="dir" value="{{ dir }}">
+      <label for="status-filter">Status</label>
+      <select id="status-filter" name="status" onchange="this.form.submit()">
+        <option value="">All statuses ({{ total_count }})</option>
+        {% for s in status_choices %}
+          <option value="{{ s.value }}" {% if s.value == status_filter %}selected{% endif %}
+                  {% if not s.count %}disabled{% endif %}>{{ s.label }} ({{ s.count }})</option>
+        {% endfor %}
+      </select>
+      <noscript><button class="btn btn-grey" type="submit">Apply</button></noscript>
+    </form>
+    {% if status_filter %}
+      <a class="btn btn-grey" href="?sort={{ sort }}&amp;dir={{ dir }}">Clear filter</a>
+    {% endif %}
+    <span class="count">
+      {% if status_filter %}{{ shown_count }} of {{ total_count }}{% else %}{{ total_count }}{% endif %}
+      migration{{ total_count|pluralize }}
+    </span>
+  </div>
   {% if migrations %}
     <table>
       <thead>
         <tr>
           <th style="width:60px;">#</th>
-          <th>Label</th>
-          {% if is_admin_view %}<th style="width:140px;">Owner</th>{% endif %}
-          <th>Source</th>
-          <th>Destination</th>
-          <th style="width:140px;">Created</th>
+          {% include "migrator/_sort_header.html" with col=sortcols.label label="Label" %}
+          {% if is_admin_view %}{% include "migrator/_sort_header.html" with col=sortcols.owner label="Owner" width="140px" %}{% endif %}
+          {% include "migrator/_sort_header.html" with col=sortcols.source label="Source" %}
+          {% include "migrator/_sort_header.html" with col=sortcols.destination label="Destination" %}
+          {% include "migrator/_sort_header.html" with col=sortcols.status label="Status" width="130px" %}
+          {% include "migrator/_sort_header.html" with col=sortcols.created label="Created" width="140px" %}
           <th style="width:280px;"></th>
         </tr>
       </thead>
@@ -51,13 +111,19 @@
             <div style="font-weight:500;">{{ m.new_username }}</div>
             <div class="muted" style="font-size:12.5px;">{{ m.new_host }}</div>
           </td>
+          <td>
+            <a href="{% url 'migrator:report' m.id %}" title="How far this migration has got"
+               style="text-decoration:none;">
+              <span class="badge-status {{ m.overall_status }}">{{ m.overall_status }}</span>
+            </a>
+          </td>
           <td class="muted" style="font-size: 13px;">{{ m.created_at|date:"Y-m-d H:i" }}</td>
           <td style="text-align:right; white-space:nowrap;">
             <a class="btn btn-grey" href="{% url 'migrator:report' m.id %}" title="View migration report">
               <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
               Report
             </a>
-            {% if m.owner_id == request.user.id %}
+            {% if m.can_manage %}
               <a class="btn btn-grey" style="margin-left:6px;" href="{% url 'migrator:download_backup' m.id %}" title="Download .mbox backup as ZIP">
                 <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                 Backup
@@ -70,7 +136,8 @@
               </a>
               <form method="post" action="{% url 'migrator:delete_migration' m.id %}" class="js-delete-form" style="display:inline; margin-left:6px;"
                     data-mig-id="{{ m.id }}"
-                    data-mig-label="{{ m.name|default:m.old_username }}">
+                    data-mig-label="{{ m.name|default:m.old_username }}"
+                    data-mig-owner="{% if m.owner_id != request.user.id %}{{ m.owner.get_username|default:'another user' }}{% endif %}">
                 {% csrf_token %}
                 <button type="submit" class="btn btn-grey" title="Delete record" style="color: var(--red); padding: 8px 10px;">
                   <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/></svg>
@@ -87,11 +154,19 @@
   {% else %}
     <div class="empty">
       <svg class="icon-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
-      <b>No migrations yet</b>
-      Create your first migration to get started.
-      <div style="margin-top:14px;">
-        <a class="btn btn-primary" href="{% url 'migrator:config_new' %}">+ New migration</a>
-      </div>
+      {% if status_filter %}
+        <b>No migrations with that status</b>
+        {{ total_count }} migration{{ total_count|pluralize }} in total — none are “{{ status_filter }}”.
+        <div style="margin-top:14px;">
+          <a class="btn btn-grey" href="?sort={{ sort }}&amp;dir={{ dir }}">Clear filter</a>
+        </div>
+      {% else %}
+        <b>No migrations yet</b>
+        Create your first migration to get started.
+        <div style="margin-top:14px;">
+          <a class="btn btn-primary" href="{% url 'migrator:config_new' %}">+ New migration</a>
+        </div>
+      {% endif %}
     </div>
   {% endif %}
 </div>
@@ -108,9 +183,11 @@ document.querySelectorAll('.js-delete-form').forEach(form => {
     e.preventDefault();
     const id = form.dataset.migId;
     const label = form.dataset.migLabel || ('#' + id);
+    const owner = form.dataset.migOwner;
     const result = await mtSwal.confirm({
-      title: 'Delete this migration?',
+      title: owner ? `Delete ${escapeHtml(owner)}'s migration?` : 'Delete this migration?',
       html: `<div><b style="color:#0f172a;">${escapeHtml(label)}</b></div>
+             ${owner ? `<div style="margin-top:10px; color:#991b1b;"><b>This belongs to ${escapeHtml(owner)}, not to you.</b> You are deleting it as an admin.</div>` : ''}
              <div style="margin-top:10px;">This deletes the migration record and its backed-up messages from the database. There is no recovery — download the backup first if you still need it.</div>`,
       confirmText: 'Delete record',
       danger: true,
