@@ -379,11 +379,18 @@ def run_transfer(migration_id: int, resumed: bool = False) -> None:
 
                 # Index DB-stored backups for this folder so we can avoid re-fetching
                 # the bytes from the old server when we have them locally.
-                db_records = {
-                    r.message_id: r for r in MessageRecord.objects.filter(
+                #
+                # Ids and primary keys only. Holding the rows themselves would
+                # pull every message body in the folder into memory at once —
+                # near a gigabyte for a large INBOX — which is enough to get the
+                # worker OOM-killed mid-transfer, leaving the run marked running
+                # with nothing behind it. Bodies are loaded one at a time below,
+                # the way restore and the archive builder already do it.
+                db_pks = dict(
+                    MessageRecord.objects.filter(
                         migration=migration, folder=src, backed_up=True,
-                    )
-                }
+                    ).values_list("message_id", "pk")
+                )
 
                 for uid in uids:
                     mid = (src_uid_to_mid.get(uid) or "").strip()
@@ -391,7 +398,10 @@ def run_transfer(migration_id: int, resumed: bool = False) -> None:
                     raw = b""
                     flags: list[str] = []
                     internaldate = ""
-                    rec = db_records.get(mid) if mid else None
+                    rec = None
+                    if mid and mid in db_pks:
+                        # One row, one message body, released next iteration.
+                        rec = MessageRecord.objects.filter(pk=db_pks[mid]).first()
                     if rec and rec.raw_bytes:
                         raw = bytes(rec.raw_bytes)
                         flags = rec.flags.split() if rec.flags else []
@@ -415,16 +425,19 @@ def run_transfer(migration_id: int, resumed: bool = False) -> None:
                     if mid in dst_msgids or rec.transferred:
                         rec.transferred = True
                         rec.save(update_fields=["transferred"])
-                        processed += 1
-                        continue
+                    else:
+                        try:
+                            new.append(dst, raw, flags=flags, internaldate=internaldate)
+                            rec.transferred = True
+                            rec.save(update_fields=["transferred"])
+                            dst_msgids.add(mid)
+                        except Exception as exc:
+                            _log(hub, "warn", f"  APPEND failed for {mid}: {exc}")
 
-                    try:
-                        new.append(dst, raw, flags=flags, internaldate=internaldate)
-                        rec.transferred = True
-                        rec.save(update_fields=["transferred"])
-                        dst_msgids.add(mid)
-                    except Exception as exc:
-                        _log(hub, "warn", f"  APPEND failed for {mid}: {exc}")
+                    # Outside the upload branch on purpose: a resumed transfer
+                    # spends its first minutes skipping messages that are
+                    # already there, and if only uploads moved the counter the
+                    # screen would sit at 0 while the run was in fact working.
                     processed += 1
                     run.processed = processed
                     if processed % 25 == 0:
