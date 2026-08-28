@@ -263,6 +263,7 @@ def home(request: HttpRequest) -> HttpResponse:
             else "verified" if phases["verify"]["status"] == PhaseRun.STATUS_SUCCESS
             else "transferred" if phases["transfer"]["status"] == PhaseRun.STATUS_SUCCESS
             else "backed-up" if phases["backup"]["status"] == PhaseRun.STATUS_SUCCESS
+            else "interrupted" if any(p["stalled"] or p["interrupted"] for p in phases.values())
             else "in-progress" if any(p["status"] == PhaseRun.STATUS_RUNNING for p in phases.values())
             else "not-started"
         )
@@ -875,6 +876,12 @@ def _phase_summary(migration: Migration) -> dict[str, dict]:
             "error": last.error if last else "",
             "started": last.started_at if last else None,
             "finished": last.finished_at if last else None,
+            # Says "running" but its process stopped answering — the screens
+            # offer Resume instead of a progress bar that will never move.
+            "stalled": bool(last and last.is_stalled),
+            # Ended because its process died, rather than because the work went
+            # wrong. Worth distinguishing: nothing is broken, it just stopped.
+            "interrupted": bool(last and last.interrupted),
         }
     return out
 
@@ -890,6 +897,7 @@ def dashboard(request: HttpRequest, migration_id: int) -> HttpResponse:
         "transfer": has_creds and summary["backup"]["status"] == PhaseRun.STATUS_SUCCESS,
         "verify": has_creds and summary["transfer"]["status"] == PhaseRun.STATUS_SUCCESS,
     }
+    any_stalled = any(p["stalled"] for p in summary.values())
     cleanup_unlocked = (
         has_creds and summary["verify"]["status"] == PhaseRun.STATUS_SUCCESS
     )
@@ -897,6 +905,7 @@ def dashboard(request: HttpRequest, migration_id: int) -> HttpResponse:
         "migration": migration,
         "summary": summary,
         "can_run": can_run,
+        "any_stalled": any_stalled,
         "cleanup_unlocked": cleanup_unlocked,
         "has_creds": has_creds,
         "nav_active": "migrations",
@@ -926,6 +935,70 @@ def phase_status(request: HttpRequest, migration_id: int) -> HttpResponse:
             "finished": v["finished"].isoformat() if v["finished"] else None}
         for k, v in _phase_summary(migration).items()
     }})
+
+
+@otp_required(login_url="migrator:login")
+@require_POST
+def resume_phase(request: HttpRequest, migration_id: int, phase: str) -> HttpResponse:
+    """Pick a phase back up after the process running it died.
+
+    The dashboard's Run button already does this (starting a phase resumes it,
+    since every phase skips what it already did); this exists so the Report
+    screen — where a stalled run is usually spotted — can offer the same thing
+    without JavaScript, closing the dead run row on the way through.
+
+    Admins may resume a run on a migration they don't own, which is the one
+    place `_owned_migrations` is relaxed. Resuming isn't acting on someone
+    else's behalf so much as unblocking work they already started: the
+    supervisor picks the same runs up by itself, owner or not, and this only
+    makes it happen now instead of on the next tick. *Starting* a phase that
+    was never interrupted stays with the owner.
+    """
+    from .supervisor import resume_phase_run
+
+    if phase not in {p for p, _ in PhaseRun.PHASE_CHOICES}:
+        return HttpResponseBadRequest("unknown phase")
+    if phase == PhaseRun.PHASE_CLEANUP:
+        return HttpResponseBadRequest("cleanup is re-run from the verification screen")
+    migration = get_object_or_404(_user_migrations(request.user), pk=migration_id)
+    owns = _owned_migrations(request.user).filter(pk=migration.pk).exists()
+
+    run = migration.phase_runs.filter(phase=phase).order_by("-id").first()
+    label = dict(PhaseRun.PHASE_CHOICES).get(phase, phase)
+    interrupted = run is not None and (run.is_stalled or run.interrupted)
+
+    if not interrupted and not owns:
+        messages.error(
+            request,
+            f"{label} has nothing to resume, and only the owner can start a "
+            f"phase on this migration.",
+        )
+    elif run is None or not run.is_stalled:
+        # Nothing dead to revive right now: it never ran, it is genuinely
+        # alive, or the sweep already closed it. Starting it does the resuming.
+        if not load_credentials(migration.pk):
+            messages.error(request, "No credentials saved for this migration.")
+        elif launch_phase(migration.pk, phase, resumed=interrupted):
+            messages.success(
+                request,
+                f"{label} started — it skips everything already done, so it "
+                f"carries on rather than starting over."
+                if interrupted else f"{label} started.",
+            )
+        else:
+            messages.info(request, f"{label} is already running.")
+    else:
+        resumed, reason = resume_phase_run(run)
+        if resumed:
+            messages.success(
+                request,
+                f"{label} was interrupted by a restart and has been resumed — "
+                f"it carries on from the {run.processed} message(s) already done.",
+            )
+        else:
+            messages.error(request, f"Could not resume {label}: {reason}.")
+
+    return redirect(request.POST.get("next") or reverse("migrator:report", args=[migration.pk]))
 
 
 # ---------------------------------------------------------------------------
@@ -1144,11 +1217,28 @@ def _build_report_context(migration: Migration) -> dict:
     for p in phases.values():
         p["duration"] = _duration_str(p["started"], p["finished"])
 
+    # Phases a restart cut short: still marked running with nothing behind them
+    # (stalled), or already closed as interrupted by the recovery sweep. Both
+    # get a Resume button, because this is the screen where a run that stopped
+    # moving is noticed. Cleanup is excluded — it deletes mail, and needs the
+    # verification report and the confirmation box, not a one-click restart.
+    interrupted_phases = [
+        {
+            "phase": key,
+            "label": dict(PhaseRun.PHASE_CHOICES).get(key, key.title()),
+            "stalled": p["stalled"],
+            "last_seen": migration.phase_runs.filter(phase=key).order_by("-id").first().last_sign_of_life,
+        }
+        for key, p in phases.items()
+        if (p["stalled"] or p["interrupted"]) and key != PhaseRun.PHASE_CLEANUP
+    ]
+
     overall_status = (
         "complete" if phases["cleanup"]["status"] == PhaseRun.STATUS_SUCCESS
         else "verified" if phases["verify"]["status"] == PhaseRun.STATUS_SUCCESS
         else "transferred" if phases["transfer"]["status"] == PhaseRun.STATUS_SUCCESS
         else "backed-up" if phases["backup"]["status"] == PhaseRun.STATUS_SUCCESS
+        else "interrupted" if any(p["stalled"] or p["interrupted"] for p in phases.values())
         else "in-progress" if any(p["status"] == PhaseRun.STATUS_RUNNING for p in phases.values())
         else "not-started"
     )
@@ -1159,6 +1249,7 @@ def _build_report_context(migration: Migration) -> dict:
         "folder_rows": folder_rows,
         "totals": totals,
         "overall_status": overall_status,
+        "interrupted_phases": interrupted_phases,
         "verify_report": verify_report,
     }
 
@@ -1216,6 +1307,7 @@ def download_report_pdf(request: HttpRequest, migration_id: int) -> HttpResponse
         "transferred": (BLACK, PILL_BG),
         "backed-up":   (MUTED, PILL_BG),
         "in-progress": (BLACK, PILL_BG),
+        "interrupted": (BLACK, PILL_BG),
         "not-started": (MUTED, PILL_BG),
         "success":     (BLACK, PILL_BG_STRONG),
         "failed":      (BLACK, PILL_BG_STRONG),
@@ -1749,6 +1841,7 @@ def backup_status(request: HttpRequest, job_id: int) -> JsonResponse:
         "processed": job.processed,
         "total": job.total,
         "error": job.error,
+        "stalled": job.is_stalled,
         "started": job.started_at.isoformat() if job.started_at else None,
         "finished": job.finished_at.isoformat() if job.finished_at else None,
     })
@@ -1998,6 +2091,7 @@ def restore_status(request: HttpRequest, job_id: int) -> JsonResponse:
         "skipped": job.skipped,
         "failed": job.failed,
         "error": job.error,
+        "stalled": job.is_stalled,
     })
 
 

@@ -33,7 +33,7 @@ from django.utils import timezone
 from .crypto import decrypt
 from .imap_client import ImapClient, parse_message_id, synthetic_message_id
 from .models import BackupFolder, BackupJob, BackupMessage, UserProfile
-from .runtime import STATE
+from .runtime import STATE, WORKER_ID, start_heartbeat
 
 
 logger = logging.getLogger(__name__)
@@ -205,12 +205,17 @@ def blocking_reason(job: BackupJob) -> str:
     return ""
 
 
-def run_backup_job(job_id: int, scheduled: bool = False) -> None:
+def run_backup_job(job_id: int, scheduled: bool = False, resumed: bool = False) -> None:
     """Archive every selected folder of one mailbox.
 
     `scheduled` marks a run started by the scheduler rather than by a person
     clicking Run: those only email the owner when something went wrong, so a
     daily backup doesn't produce a daily "success" email.
+
+    `resumed` marks a run the supervisor restarted after the last one's process
+    died. Nothing about the work changes — messages already archived are
+    skipped either way — it only carries the retry counter so a job that keeps
+    dying is eventually left alone.
     """
     job = BackupJob.objects.get(pk=job_id)
     hub = STATE.hub(hub_key(job_id))
@@ -221,12 +226,18 @@ def run_backup_job(job_id: int, scheduled: bool = False) -> None:
     job.processed = 0
     job.total = 0
     job.error = ""
+    job.worker = WORKER_ID
+    job.heartbeat_at = timezone.now()
+    job.interrupted = False
+    job.resumed_count = (job.resumed_count + 1) if resumed else 0
     job.save(update_fields=[
         "status", "started_at", "finished_at", "processed", "total", "error",
+        "worker", "heartbeat_at", "interrupted", "resumed_count",
     ])
+    start_heartbeat(job)
     _status(hub, "running")
     _log(hub, "info",
-         ("Scheduled backup" if scheduled else "Backup")
+         ("Resumed backup" if resumed else "Scheduled backup" if scheduled else "Backup")
          + f" started for {job.username} @ {job.host}")
 
     processed = 0
@@ -367,13 +378,18 @@ def run_backup_job(job_id: int, scheduled: bool = False) -> None:
         _notify(job, only_on_failure=scheduled)
 
 
-def launch_backup_job(job_id: int) -> bool:
-    """Start the job in a background thread. False if it's already running."""
+def launch_backup_job(job_id: int, resumed: bool = False) -> bool:
+    """Start the job in a background thread. False if it's already running.
+
+    "Already running" means running *in this process*: a job left marked
+    running by a container that has since died is picked up again, which is how
+    a restart recovers (see migrator.supervisor).
+    """
     key = hub_key(job_id)
     if STATE.is_running(key, "backup"):
         return False
     thread = threading.Thread(
-        target=lambda: run_backup_job(job_id),
+        target=lambda: run_backup_job(job_id, resumed=resumed),
         name=f"backup-job-{job_id}", daemon=True,
     )
     STATE.register_thread(key, "backup", thread)

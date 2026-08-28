@@ -1,18 +1,37 @@
-"""Process-local runtime state: credentials and per-migration event hubs.
+"""Process-local runtime state: credentials, event hubs, and run heartbeats.
 
 Credentials live only in memory: the operator types them at the start of a
 session and they are never written to the database.
 
 Each Migration gets one Hub that fans out log/progress events to any number
 of SSE listeners.
+
+Heartbeats are the one piece of state here that *is* written down: a row being
+worked on gets `heartbeat_at` stamped every 30 seconds, which is how
+`migrator.supervisor` tells "still running" from "the process died holding
+this". WORKER_ID identifies this process, and changes on every boot.
 """
 
 from __future__ import annotations
 
+import logging
+import os
+import socket
 import threading
 import time
+import uuid
 from collections import deque
 from dataclasses import dataclass
+
+from django.db import connection
+from django.utils import timezone
+
+
+logger = logging.getLogger(__name__)
+
+# Identifies this process for the lifetime of this process only: a restart
+# always produces a new one, which is exactly what makes it useful.
+WORKER_ID = f"{socket.gethostname()}:{os.getpid()}:{uuid.uuid4().hex[:8]}"
 
 
 @dataclass
@@ -127,3 +146,78 @@ def load_credentials(migration_id: int) -> Credentials | None:
     hydrated = Credentials(old_password=old, new_password=new)
     STATE.set_credentials(migration_id, hydrated)
     return hydrated
+
+
+# ---------------------------------------------------------------------------
+# Heartbeats
+# ---------------------------------------------------------------------------
+
+
+class _Heartbeat:
+    """Keeps one row's `heartbeat_at` fresh while its work is in flight.
+
+    Runs a daemon thread that does a single narrow UPDATE every `every`
+    seconds. It stops on its own as soon as the row is no longer "running", so
+    a runner that returns down some path nobody thought about still can't leave
+    a ticker behind — the row's own status ends it.
+    """
+
+    def __init__(self, obj, every: float) -> None:
+        self._model = type(obj)
+        self._pk = obj.pk
+        self._every = every
+        self._stop = threading.Event()
+        self._thread = threading.Thread(
+            target=self._run,
+            name=f"heartbeat-{self._model.__name__}-{self._pk}",
+            daemon=True,
+        )
+
+    def _touch(self) -> int:
+        """Stamp the row. Returns rows updated: 0 means it is no longer running."""
+        return self._model.objects.filter(pk=self._pk, status="running").update(
+            heartbeat_at=timezone.now(), worker=WORKER_ID,
+        )
+
+    def _run(self) -> None:
+        try:
+            while not self._stop.wait(self._every):
+                try:
+                    if not self._touch():
+                        return
+                except Exception:
+                    # A blip in the database must never take down the run it is
+                    # only supposed to be watching. Drop the connection so the
+                    # next beat reconnects: a heartbeat wedged on a dead socket
+                    # would look exactly like a dead process, and the
+                    # supervisor would start a second copy of live work.
+                    logger.debug("Heartbeat update failed", exc_info=True)
+                    try:
+                        connection.close()
+                    except Exception:
+                        pass
+        finally:
+            # This thread opened its own connection; don't leave it dangling.
+            try:
+                connection.close()
+            except Exception:
+                pass
+
+    def start(self) -> "_Heartbeat":
+        try:
+            self._touch()
+        except Exception:
+            logger.debug("Initial heartbeat failed", exc_info=True)
+        self._thread.start()
+        return self
+
+    def stop(self) -> None:
+        self._stop.set()
+
+
+def start_heartbeat(obj, every: float | None = None) -> _Heartbeat:
+    """Begin heartbeating `obj` (a LiveRun row). Call right after it goes
+    running; it ends itself when the row stops being running."""
+    from .models import RUN_HEARTBEAT_EVERY
+
+    return _Heartbeat(obj, every or RUN_HEARTBEAT_EVERY).start()
