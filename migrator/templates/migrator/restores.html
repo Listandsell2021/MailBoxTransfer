@@ -17,7 +17,7 @@
 
 <div class="card" style="padding: 0; overflow: hidden;">
   {% if jobs %}
-    <div style="overflow-x:auto;">
+    <div class="table-wrap" style="--table-min-w: 1120px;">
     <table>
       <thead>
         <tr>
@@ -29,7 +29,7 @@
           <th style="width:110px;">Imported</th>
           <th style="width:110px;">Already there</th>
           <th style="width:140px;">Finished</th>
-          <th style="width:180px;"></th>
+          <th class="col-actions" style="width:1%;"></th>
         </tr>
       </thead>
       <tbody>
@@ -69,7 +69,7 @@
           <td style="font-variant-numeric: tabular-nums;">{{ job.imported }}</td>
           <td style="font-variant-numeric: tabular-nums;" class="muted">{{ job.skipped }}</td>
           <td class="muted" style="font-size:13px;">{{ job.finished_at|date:"Y-m-d H:i"|default:"—" }}</td>
-          <td style="text-align:right; white-space:nowrap;">
+          <td class="col-actions" style="text-align:right; white-space:nowrap;">
             {% if job.owner_id != request.user.id %}
               <span class="muted" style="font-size:12px; font-style:italic;" title="Owned by {{ job.owner.get_username|default:'—' }}">view only</span>
             {% else %}

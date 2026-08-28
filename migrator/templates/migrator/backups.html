@@ -28,7 +28,7 @@
 
 <div class="card" style="padding: 0; overflow: hidden;">
   {% if jobs %}
-    <div style="overflow-x:auto;">
+    <div class="table-wrap" style="--table-min-w: 1280px;">
     <table>
       <thead>
         <tr>
@@ -41,7 +41,7 @@
           <th style="width:110px;">Attachments</th>
           <th style="width:100px;">Size</th>
           <th style="width:140px;">Last run</th>
-          <th style="width:260px;"></th>
+          <th class="col-actions" style="width:1%;"></th>
         </tr>
       </thead>
       <tbody>
@@ -86,7 +86,7 @@
           <td style="font-variant-numeric: tabular-nums;">{{ job.attachment_count }}</td>
           <td class="muted" style="font-size:13px;">{{ job.storage_display }}</td>
           <td class="muted" style="font-size:13px;">{{ job.finished_at|date:"Y-m-d H:i"|default:"—" }}</td>
-          <td style="text-align:right; white-space:nowrap;">
+          <td class="col-actions" style="text-align:right; white-space:nowrap;">
             {% if job.owner_id != request.user.id %}
               <span class="muted" style="font-size:12px; font-style:italic;" title="Owned by {{ job.owner.get_username|default:'—' }}">view only</span>
             {% else %}

@@ -75,6 +75,7 @@
     </span>
   </div>
   {% if migrations %}
+    <div class="table-wrap" style="--table-min-w: 1080px;">
     <table>
       <thead>
         <tr>
@@ -85,7 +86,7 @@
           {% include "migrator/_sort_header.html" with col=sortcols.destination label="Destination" %}
           {% include "migrator/_sort_header.html" with col=sortcols.status label="Status" width="130px" %}
           {% include "migrator/_sort_header.html" with col=sortcols.created label="Created" width="140px" %}
-          <th style="width:280px;"></th>
+          <th class="col-actions" style="width:1%;"></th>
         </tr>
       </thead>
       <tbody>
@@ -118,20 +119,20 @@
             </a>
           </td>
           <td class="muted" style="font-size: 13px;">{{ m.created_at|date:"Y-m-d H:i" }}</td>
-          <td style="text-align:right; white-space:nowrap;">
+          <td class="col-actions" style="text-align:right; white-space:nowrap;">
             <a class="btn btn-grey" href="{% url 'migrator:report' m.id %}" title="View migration report">
               <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
-              Report
+              
             </a>
             {% if m.can_manage %}
               <a class="btn btn-grey" style="margin-left:6px;" href="{% url 'migrator:download_backup' m.id %}" title="Download .mbox backup as ZIP">
                 <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                Backup
+                
               </a>
               <a class="btn btn-primary" style="margin-left:6px;"
                  href="{% if m.phase_count %}{% url 'migrator:dashboard' m.id %}{% else %}{% url 'migrator:config_edit' m.id %}{% endif %}"
                  title="{% if m.phase_count %}Open dashboard{% else %}Finish setup{% endif %}">
-                Open
+                
                 <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
               </a>
               <form method="post" action="{% url 'migrator:delete_migration' m.id %}" class="js-delete-form" style="display:inline; margin-left:6px;"
@@ -151,6 +152,7 @@
       {% endfor %}
       </tbody>
     </table>
+    </div>
   {% else %}
     <div class="empty">
       <svg class="icon-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>

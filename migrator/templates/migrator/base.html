@@ -75,6 +75,7 @@
 
   aside.sidebar {
     width: var(--sidebar-w); flex-shrink: 0;
+    transition: width .18s ease;
     background: #ffffff;
     border-right: 1px solid var(--card-border);
     display: flex; flex-direction: column;
@@ -196,6 +197,65 @@
     color: #4338ca; background: #eef2ff; border-radius: 999px;
     padding: 1px 6px; letter-spacing: .04em; text-transform: uppercase;
     margin-left: 4px;
+  }
+
+  /* Desktop collapse: toggle the sidebar down to an icon-only rail to free up space */
+  :root { --sidebar-w-collapsed: 68px; }
+  .sidebar-collapse-btn {
+    margin-left: auto; flex-shrink: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 28px; height: 28px; padding: 0;
+    background: transparent; color: var(--muted);
+    border: 1px solid transparent; border-radius: var(--r-sm);
+    cursor: pointer; transition: all .12s;
+  }
+  .sidebar-collapse-btn:hover { background: var(--subtle); color: var(--text); border-color: var(--card-border); }
+  .sidebar-collapse-btn .icon-sm { width: 17px; height: 17px; }
+
+  html.sidebar-collapsed aside.sidebar {
+    width: var(--sidebar-w-collapsed); padding-left: 10px; padding-right: 10px;
+  }
+  html.sidebar-collapsed aside.sidebar .brand {
+    flex-direction: column; gap: 8px; padding: 4px 0 14px;
+  }
+  html.sidebar-collapsed aside.sidebar .brand > span:not(.logo) { display: none; }
+  html.sidebar-collapsed .sidebar-collapse-btn { margin-left: 0; }
+  html.sidebar-collapsed aside.sidebar .nav .section-label { display: none; }
+  /* font-size:0 hides the bare label text nodes; the icons are sized in px */
+  html.sidebar-collapsed aside.sidebar .nav a,
+  html.sidebar-collapsed aside.sidebar .nav button {
+    justify-content: center; gap: 0; padding: 10px 0;
+    font-size: 0; position: relative;
+  }
+  html.sidebar-collapsed aside.sidebar .nav .nav-badge {
+    position: absolute; top: 5px; right: 12px; margin-left: 0;
+    min-width: 8px; width: 8px; height: 8px; padding: 0; font-size: 0;
+  }
+  html.sidebar-collapsed aside.sidebar .user-card {
+    justify-content: center; gap: 0; padding: 12px 0 10px;
+  }
+  html.sidebar-collapsed aside.sidebar .user-card .who,
+  html.sidebar-collapsed aside.sidebar .user-card .chev { display: none; }
+  html.sidebar-collapsed aside.sidebar .signout-form { left: 0; right: auto; width: 200px; }
+
+  /* Under 860px the sidebar is a full-width drawer, so the collapse never applies */
+  @media (max-width: 860px) {
+    .sidebar-collapse-btn { display: none; }
+    html.sidebar-collapsed aside.sidebar { width: 268px; max-width: 84vw; padding: 18px 14px; }
+    html.sidebar-collapsed aside.sidebar .brand { flex-direction: row; gap: 10px; padding: 4px 8px 16px; }
+    html.sidebar-collapsed aside.sidebar .brand > span:not(.logo) { display: inline; }
+    html.sidebar-collapsed aside.sidebar .nav a,
+    html.sidebar-collapsed aside.sidebar .nav button {
+      justify-content: flex-start; gap: 10px; padding: 9px 10px; font-size: 13.5px;
+    }
+    html.sidebar-collapsed aside.sidebar .nav .nav-badge {
+      position: static; margin-left: auto; min-width: 18px; width: auto;
+      height: 18px; padding: 0 5px; font-size: 11px;
+    }
+    html.sidebar-collapsed aside.sidebar .user-card { justify-content: flex-start; gap: 10px; padding: 12px 10px 10px; }
+    html.sidebar-collapsed aside.sidebar .user-card .who,
+    html.sidebar-collapsed aside.sidebar .user-card .chev { display: block; }
+    html.sidebar-collapsed aside.sidebar .signout-form { left: 0; right: 0; width: auto; }
   }
   /* Mobile top bar + drawer scrim — hidden on desktop, shown under 860px */
   .mobile-topbar {
@@ -349,6 +409,62 @@
   tbody tr { transition: background .12s; }
   tbody tr:hover { background: var(--hover); }
   tr.alt td { background: transparent; }
+
+  /* Wide tables scroll sideways inside their card rather than squashing the
+     columns, and the actions column is pinned to the right edge so the row
+     buttons stay reachable at any screen width. */
+  .table-wrap {
+    overflow-x: auto; overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin; scrollbar-color: #cbd5e1 transparent;
+  }
+  .table-wrap::-webkit-scrollbar { height: 10px; }
+  .table-wrap::-webkit-scrollbar-track { background: #f1f5f9; }
+  .table-wrap::-webkit-scrollbar-thumb {
+    background: #cbd5e1; border-radius: 999px; border: 2px solid #f1f5f9;
+  }
+  .table-wrap::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+  /* Per-table override: <div class="table-wrap" style="--table-min-w: 1200px"> */
+  .table-wrap > table { min-width: var(--table-min-w, 1020px); }
+
+  th.col-actions, td.col-actions {
+    position: sticky; right: 0; z-index: 2;
+    background: var(--card, #fff);
+  }
+  th.col-actions { background: #fafbfc; z-index: 3; }
+  tbody tr:hover td.col-actions { background: var(--hover); }
+  /* Hairline edge; it grows a shadow only while content is hidden to the right. */
+  th.col-actions::before, td.col-actions::before {
+    content: ''; position: absolute; left: 0; top: 0; bottom: -1px; width: 1px;
+    background: var(--card-border); transition: box-shadow .15s ease;
+  }
+  .table-wrap.has-overflow th.col-actions::before,
+  .table-wrap.has-overflow td.col-actions::before {
+    box-shadow: -7px 0 12px -4px rgba(15,23,42,.22);
+  }
+  /* Actions cells hug their buttons so the slack lands in the text columns. */
+  td.col-actions { white-space: nowrap; }
+
+  /* A proxy for the table's own horizontal scrollbar, floated at the bottom of
+     the viewport so you don't have to scroll to the end of a long table to
+     reach it. It mirrors the real bar and disappears once that one is on screen. */
+  .table-scrollbar {
+    position: fixed; bottom: 0; z-index: 35;
+    height: 15px; display: none;
+    overflow-x: auto; overflow-y: hidden;
+    background: #ffffff;
+    border-top: 1px solid var(--card-border);
+    box-shadow: 0 -4px 14px -8px rgba(15,23,42,.35);
+    scrollbar-width: thin; scrollbar-color: #94a3b8 #f1f5f9;
+  }
+  .table-scrollbar.is-visible { display: block; }
+  .table-scrollbar::-webkit-scrollbar { height: 13px; }
+  .table-scrollbar::-webkit-scrollbar-track { background: #f1f5f9; }
+  .table-scrollbar::-webkit-scrollbar-thumb {
+    background: #94a3b8; border-radius: 999px; border: 3px solid #f1f5f9;
+  }
+  .table-scrollbar::-webkit-scrollbar-thumb:hover { background: #64748b; }
+  .table-scrollbar > div { height: 1px; }
 
   /* Pills */
   .pill {
@@ -656,6 +772,16 @@
   // Belt-and-braces: route any stray window.alert() through Swal too.
   window.alert = (msg) => window.mtSwal.warn(String(msg ?? ''));
 </script>
+<script>
+  // Apply the remembered sidebar state before first paint to avoid a layout flash.
+  (function(){
+    try {
+      if (localStorage.getItem('mtSidebarCollapsed') === '1') {
+        document.documentElement.classList.add('sidebar-collapsed');
+      }
+    } catch (e) {}
+  })();
+</script>
 </head>
 <body>
 <div class="app-shell">
@@ -679,30 +805,34 @@
       <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
     </span>
     <span>Mailbox Transfer</span>
+    <button type="button" class="sidebar-collapse-btn" id="sidebarCollapse"
+            aria-label="Collapse sidebar" aria-expanded="true" aria-controls="appSidebar" title="Collapse sidebar">
+      <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+    </button>
   </div>
   <nav class="nav">
-    <a href="{% url 'migrator:home' %}" class="{% if nav_active == 'home' %}active{% endif %}">
+    <a href="{% url 'migrator:home' %}" title="Dashboard" class="{% if nav_active == 'home' %}active{% endif %}">
       <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>
       Dashboard
     </a>
-    <a href="{% url 'migrator:index' %}" class="{% if nav_active == 'migrations' %}active{% endif %}">
+    <a href="{% url 'migrator:index' %}" title="Migrations" class="{% if nav_active == 'migrations' %}active{% endif %}">
       <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
       Migrations
     </a>
-    <a href="{% url 'migrator:backups' %}" class="{% if nav_active == 'backups' %}active{% endif %}">
+    <a href="{% url 'migrator:backups' %}" title="Backups" class="{% if nav_active == 'backups' %}active{% endif %}">
       <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8v13H3V8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg>
       Backups
     </a>
-    <a href="{% url 'migrator:restores' %}" class="{% if nav_active == 'restores' %}active{% endif %}">
+    <a href="{% url 'migrator:restores' %}" title="Restore" class="{% if nav_active == 'restores' %}active{% endif %}">
       <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
       Restore
     </a>
     {% if user.is_superuser or user.is_staff %}
-    <a href="{% url 'migrator:users' %}" class="{% if nav_active == 'users' %}active{% endif %}">
+    <a href="{% url 'migrator:users' %}" title="Users" class="{% if nav_active == 'users' %}active{% endif %}">
       <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
       Users
     </a>
-    <a href="{% url 'migrator:notifications' %}" class="{% if nav_active == 'notifications' %}active{% endif %}">
+    <a href="{% url 'migrator:notifications' %}" title="Notifications" class="{% if nav_active == 'notifications' %}active{% endif %}">
       <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
       Notifications
       {% if unseen_notifications %}<span class="nav-badge">{{ unseen_notifications }}</span>{% endif %}
@@ -721,7 +851,7 @@
         Sign out
       </button>
     </form>
-    <button type="button" class="user-card" id="userCardToggle" aria-expanded="false" aria-controls="signoutForm">
+    <button type="button" class="user-card" id="userCardToggle" title="{{ user.get_username }}" aria-expanded="false" aria-controls="signoutForm">
       <span class="avatar">{{ user.get_username|slice:":1"|upper }}</span>
       <div class="who">
         <div class="name">{{ user.get_username }}{% if user.is_superuser or user.is_staff %}<span class="admin-pill">Admin</span>{% endif %}</div>
@@ -771,6 +901,23 @@
   // Navigating away from a drawer link should not leave the scrim/body locked.
   sidebar.querySelectorAll('.nav a').forEach(a => a.addEventListener('click', () => setOpen(false)));
   window.matchMedia('(min-width: 861px)').addEventListener('change', (e) => { if (e.matches) setOpen(false); });
+
+  // Desktop collapse: shrink the sidebar to an icon rail and remember the choice.
+  const collapseBtn = document.getElementById('sidebarCollapse');
+  if (collapseBtn) {
+    function setCollapsed(collapsed) {
+      document.documentElement.classList.toggle('sidebar-collapsed', collapsed);
+      collapseBtn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+      const label = collapsed ? 'Expand sidebar' : 'Collapse sidebar';
+      collapseBtn.setAttribute('aria-label', label);
+      collapseBtn.setAttribute('title', label);
+      try { localStorage.setItem('mtSidebarCollapsed', collapsed ? '1' : '0'); } catch (e) {}
+    }
+    setCollapsed(document.documentElement.classList.contains('sidebar-collapsed'));
+    collapseBtn.addEventListener('click', () => {
+      setCollapsed(!document.documentElement.classList.contains('sidebar-collapsed'));
+    });
+  }
 })();
 </script>
 {% endif %}
@@ -778,6 +925,57 @@
 {% block content %}{% endblock %}
 </main>
 </div>
+<script>
+(function(){
+  const wraps = Array.from(document.querySelectorAll('.table-wrap'));
+  if (!wraps.length) return;
+
+  const syncers = wraps.map(wrap => {
+    // Proxy bar: a fixed-position scroller pinned to the bottom of the window,
+    // kept exactly as wide as the table and driving the same scrollLeft.
+    const bar = document.createElement('div');
+    bar.className = 'table-scrollbar';
+    const spacer = document.createElement('div');
+    bar.appendChild(spacer);
+    document.body.appendChild(bar);
+    let echo = false;
+
+    function sync() {
+      const overflow = wrap.scrollWidth - wrap.clientWidth;
+      // Shadow on the pinned actions column, while columns remain hidden right.
+      wrap.classList.toggle('has-overflow', overflow - wrap.scrollLeft > 1);
+
+      const r = wrap.getBoundingClientRect();
+      const vh = window.innerHeight || document.documentElement.clientHeight;
+      // Only needed while the table's own bar sits below the fold.
+      const needed = overflow > 1 && r.top < vh && r.bottom > vh;
+      bar.classList.toggle('is-visible', needed);
+      if (!needed) return;
+
+      bar.style.left = r.left + 'px';
+      bar.style.width = r.width + 'px';
+      spacer.style.width = wrap.scrollWidth + 'px';
+      if (Math.abs(bar.scrollLeft - wrap.scrollLeft) > 1) {
+        echo = true; bar.scrollLeft = wrap.scrollLeft; echo = false;
+      }
+    }
+
+    bar.addEventListener('scroll', () => {
+      if (echo) return;
+      wrap.scrollLeft = bar.scrollLeft;
+    }, { passive: true });
+    wrap.addEventListener('scroll', sync, { passive: true });
+    if (window.ResizeObserver) new ResizeObserver(sync).observe(wrap);
+    return sync;
+  });
+
+  const syncAll = () => syncers.forEach(fn => fn());
+  syncAll();
+  window.addEventListener('scroll', syncAll, { passive: true });
+  window.addEventListener('resize', syncAll, { passive: true });
+  window.addEventListener('load', syncAll);
+})();
+</script>
 {% if messages %}
 <script>
   (function(){
