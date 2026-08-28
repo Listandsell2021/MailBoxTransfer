@@ -70,15 +70,14 @@
           <td style="font-variant-numeric: tabular-nums;" class="muted">{{ job.skipped }}</td>
           <td class="muted" style="font-size:13px;">{{ job.finished_at|date:"Y-m-d H:i"|default:"—" }}</td>
           <td class="col-actions" style="text-align:right; white-space:nowrap;">
-            {% if job.owner_id != request.user.id %}
-              <span class="muted" style="font-size:12px; font-style:italic;" title="Owned by {{ job.owner.get_username|default:'—' }}">view only</span>
-            {% else %}
+            {% if job.can_manage %}
             <a class="btn btn-primary" href="{% url 'migrator:restore_detail' job.id %}">
               Open
               <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
             </a>
             <form method="post" action="{% url 'migrator:delete_restore_job' job.id %}" class="js-delete-restore" style="display:inline; margin-left:6px;"
-                  data-label="{{ job.name|default:job.username }}" data-id="{{ job.id }}">
+                  data-label="{{ job.name|default:job.username }}" data-id="{{ job.id }}"
+                  data-owner="{% if job.owner_id != request.user.id %}{{ job.owner.get_username|default:'another user' }}{% endif %}">
               {% csrf_token %}
               <button type="submit" class="btn btn-grey" title="Delete import record" style="color: var(--red); padding: 8px 10px;">
                 <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/></svg>
@@ -113,9 +112,11 @@ function escapeHtml(s) {
 document.querySelectorAll('.js-delete-restore').forEach(form => {
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
+    const owner = form.dataset.owner;
     const result = await mtSwal.confirm({
-      title: 'Delete this import?',
+      title: owner ? `Delete ${escapeHtml(owner)}'s import?` : 'Delete this import?',
       html: `<div><b style="color:#0f172a;">${escapeHtml(form.dataset.label)}</b></div>
+             ${owner ? `<div style="margin-top:10px; color:#991b1b;"><b>This belongs to ${escapeHtml(owner)}, not to you.</b> You are deleting it as an admin.</div>` : ''}
              <div style="margin-top:10px;">This removes the import record and its uploaded copy of the messages. Mail already delivered into the destination mailbox stays there.</div>`,
       confirmText: 'Delete import',
       danger: true,

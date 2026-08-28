@@ -204,13 +204,17 @@ class RestoreJobForm(forms.ModelForm):
             "source_backup": "Backup",
         }
 
-    def __init__(self, *args, user=None, **kwargs):
+    def __init__(self, *args, user=None, backups=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields["source_backup"].required = False
-        self.fields["source_backup"].queryset = (
-            BackupJob.objects.filter(owner=user) if user
-            else BackupJob.objects.none()
-        )
+        # The caller passes the scope explicitly so an admin can import from
+        # anyone's backup; `user` stays the fallback for plain callers.
+        if backups is None:
+            backups = (
+                BackupJob.objects.filter(owner=user) if user
+                else BackupJob.objects.none()
+            )
+        self.fields["source_backup"].queryset = backups
         self.fields["source_backup"].empty_label = "— choose a backup —"
         if self.instance and self.instance.pk:
             self.fields["security"].initial = "ssl" if self.instance.use_ssl else "none"
