@@ -981,7 +981,18 @@ def _overall_status(phases: dict[str, dict]) -> str:
     Shared by the list, the home screen and the report so the three can't drift
     apart. Reads only `status`, `stalled` and `interrupted`, so it works on the
     trimmed summaries `_overall_statuses` builds as well as on full ones.
+
+    What the migration is doing *now* outranks how far it has got: a live
+    transfer sitting on top of a finished backup is "in progress", not
+    "backed-up", and a phase whose process died is "interrupted" even though
+    the earlier phases still show their green ticks. Only once nothing is
+    running or waiting on a person does the ladder of completed phases decide.
     """
+    running = [p for p in phases.values() if p["status"] == PhaseRun.STATUS_RUNNING]
+    if any(not p["stalled"] for p in running):
+        return "in-progress"
+    if any(p["stalled"] or p["interrupted"] for p in phases.values()):
+        return "interrupted"
     if phases["cleanup"]["status"] == PhaseRun.STATUS_SUCCESS:
         return "complete"
     if phases["verify"]["status"] == PhaseRun.STATUS_SUCCESS:
@@ -990,10 +1001,6 @@ def _overall_status(phases: dict[str, dict]) -> str:
         return "transferred"
     if phases["backup"]["status"] == PhaseRun.STATUS_SUCCESS:
         return "backed-up"
-    if any(p["stalled"] or p["interrupted"] for p in phases.values()):
-        return "interrupted"
-    if any(p["status"] == PhaseRun.STATUS_RUNNING for p in phases.values()):
-        return "in-progress"
     return "not-started"
 
 
