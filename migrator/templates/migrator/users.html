@@ -71,6 +71,11 @@
   .users-table tbody tr:hover { background: var(--hover); }
   .users-table tbody tr.pending { background: #fffbeb; }
   .users-table tbody tr.pending:hover { background: #fef3c7; }
+  /* Keep the pinned actions column in step with the row tint. */
+  .users-table tbody tr:hover td.col-actions { background: var(--hover); }
+  .users-table tbody tr.pending td.col-actions { background: #fffbeb; }
+  .users-table tbody tr.pending:hover td.col-actions { background: #fef3c7; }
+  .users-table thead th.col-actions { background: #fafbfc; }
 
   .user-cell { display: flex; align-items: center; gap: 12px; min-width: 0; }
   .avatar {
@@ -155,6 +160,7 @@
 </div>
 
 <div class="card" style="padding: 0; overflow: hidden;">
+  <div class="table-wrap" style="--table-min-w: 1180px;">
   <table class="users-table">
     <thead>
       <tr>
@@ -166,7 +172,7 @@
         <th style="text-align: right; width: 110px;">Migrations</th>
         <th style="text-align: right; width: 110px;">Storage</th>
         <th style="width: 150px;">Last sign-in</th>
-        <th style="width: 220px; text-align: right;">Actions</th>
+        <th class="col-actions" style="width: 1%; text-align: right; white-space: nowrap;">Actions</th>
       </tr>
     </thead>
     <tbody>
@@ -234,7 +240,7 @@
           <td class="muted" style="font-size: 13px;">
             {% if u.last_login %}{{ u.last_login|date:"Y-m-d H:i" }}{% else %}<span style="font-style: italic;">never</span>{% endif %}
           </td>
-          <td>
+          <td class="col-actions">
             <div class="actions-cell">
               {% if u.id != request.user.id and not u.is_superuser %}
                 {% if u.is_active %}
@@ -273,6 +279,7 @@
       {% endfor %}
     </tbody>
   </table>
+  </div>
 </div>
 
 {% endblock %}
