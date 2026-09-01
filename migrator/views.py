@@ -37,7 +37,7 @@ from .models import (
     AccessEvent, BackupJob, BackupMessage, FolderMapping, Migration,
     MessageRecord, PhaseRun, RestoreJob, UserProfile, VerificationReport,
 )
-from .phases import CleanupGate, launch_phase
+from .phases import CleanupGate, launch_backup_then_transfer, launch_phase
 from .runtime import STATE, Credentials, load_credentials
 from .crypto import encrypt
 
@@ -786,14 +786,36 @@ def config(request: HttpRequest, migration_id: int | None = None) -> HttpRespons
         and has_creds
         and any(m.action != FolderMapping.ACTION_SKIP for m in mappings)
     )
+    # Total mail on the source, as of the last Test connection. Rendered from
+    # the stored per-folder counts so the number survives a reload — the JS
+    # status line only exists until the page is refreshed. None when nothing
+    # has been counted yet, which reads differently from a genuine zero.
+    counted = [m.old_message_count for m in mappings if m.old_message_count is not None]
     return render(request, "migrator/config.html", {
         "form": form,
         "migration": migration,
         "mappings": mappings,
         "has_creds": has_creds,
         "can_proceed": can_proceed,
+        "source_message_total": sum(counted) if counted else None,
         "nav_active": "migrations",
     })
+
+
+def _folder_counts(client, folders) -> dict[str, int | None]:
+    """{folder name: message count} for an open connection.
+
+    SELECT is what the backup phase counts with, so these are the same numbers
+    the run will report. A folder that can't be opened at all (a Noselect
+    container, or one the server refuses) maps to None: unknown, not zero.
+    """
+    counts: dict[str, int | None] = {}
+    for f in folders:
+        try:
+            counts[f.name] = client.select(f.name, readonly=True)
+        except Exception:
+            counts[f.name] = None
+    return counts
 
 
 @otp_required(login_url="migrator:login")
@@ -810,10 +832,18 @@ def test_connection(request: HttpRequest, migration_id: int) -> HttpResponse:
                         creds.new_password, use_ssl=migration.new_use_ssl) as new:
             old_folders = old.list_folders()
             new_folders = new.list_folders()
+            # How much mail is actually on each side. Knowing "135 messages"
+            # up front is the difference between a migration you can plan and
+            # one you start blind — and it is the same SELECT the backup phase
+            # does anyway, just an hour earlier.
+            old_counts = _folder_counts(old, old_folders)
+            new_counts = _folder_counts(new, new_folders)
     except Exception as exc:
         return JsonResponse({"ok": False, "error": str(exc)}, status=400)
 
     rows = auto_pair_folders(old_folders, new_folders)
+    for r in rows:
+        r["old_count"] = old_counts.get(r["old"])
 
     migration.folder_mappings.all().delete()
     FolderMapping.objects.bulk_create([
@@ -824,6 +854,7 @@ def test_connection(request: HttpRequest, migration_id: int) -> HttpResponse:
             action=r["action"],
             pairing_reason=r["pairing_reason"],
             special_use=r["special_use"],
+            old_message_count=r["old_count"],
         )
         for r in rows
     ])
@@ -832,6 +863,8 @@ def test_connection(request: HttpRequest, migration_id: int) -> HttpResponse:
         "ok": True,
         "old_folder_count": len(old_folders),
         "new_folder_count": len(new_folders),
+        "old_message_total": sum(v for v in old_counts.values() if v),
+        "new_message_total": sum(v for v in new_counts.values() if v),
         "new_folder_names": sorted(f.name for f in new_folders),
         "rows": rows,
     })
@@ -1087,9 +1120,19 @@ def dashboard(request: HttpRequest, migration_id: int) -> HttpResponse:
     })
 
 
+# The dashboard's "Backup + Transfer" button posts this in place of a phase
+# name: one request that runs backup and then transfer without a second click.
+CHAIN_BACKUP_TRANSFER = "backup_transfer"
+
+
 @otp_required(login_url="migrator:login")
 @require_POST
 def start_phase(request: HttpRequest, migration_id: int, phase: str) -> HttpResponse:
+    if phase == CHAIN_BACKUP_TRANSFER:
+        migration = get_object_or_404(_editable_migrations(request.user), pk=migration_id)
+        if not load_credentials(migration.pk):
+            return JsonResponse({"ok": False, "error": "No credentials saved for this migration"}, status=400)
+        return JsonResponse({"ok": True, "started": launch_backup_then_transfer(migration.pk)})
     if phase not in {p for p, _ in PhaseRun.PHASE_CHOICES}:
         return HttpResponseBadRequest("unknown phase")
     if phase == PhaseRun.PHASE_CLEANUP:
@@ -1806,10 +1849,90 @@ def _editable_backup_jobs(user):
     return _owned_backup_jobs(user)
 
 
+# Backup and restore jobs describe one run, not a ladder of phases, so they get
+# their own five states. Ordered least-far-along first, like STATUS_RANK.
+JOB_STATES = [
+    ("not-run", "Not run"),
+    ("interrupted", "Interrupted"),
+    ("running", "Running"),
+    ("failed", "Failed"),
+    ("complete", "Complete"),
+]
+
+
+def _job_state(job) -> str:
+    """The one word describing a backup or restore job's latest run.
+
+    Shared by both lists so the badge, the filter and the counts can't
+    disagree. `interrupted` beats `running` because a stalled job is marked
+    running but its process is gone; `complete` wins outright because
+    `interrupted` is cleared at the start of every run.
+    """
+    if job.status == "success":
+        return "complete"
+    if job.is_stalled or job.interrupted:
+        return "interrupted"
+    if job.status == "running":
+        return "running"
+    if job.status == "failed":
+        return "failed"
+    return "not-run"
+
+
+def _job_list_context(request, base_qs, search_fields):
+    """Search + status-filter one job list. -> (jobs, context fragment).
+
+    The counts are taken from the search results but before the status filter,
+    so the dropdown shows what each option would give you.
+    """
+    search = request.GET.get("q", "").strip()
+    wanted = request.GET.get("status", "")
+    if wanted not in dict(JOB_STATES):
+        wanted = ""
+
+    all_count = base_qs.count()
+    if search:
+        matches = Q()
+        for field in search_fields:
+            matches |= Q(**{f"{field}__icontains": search})
+        base_qs = base_qs.filter(matches)
+
+    labels = dict(JOB_STATES)
+    jobs = list(base_qs)
+    for job in jobs:
+        job.state = _job_state(job)
+        job.state_label = labels[job.state]
+
+    counts: dict[str, int] = {}
+    for job in jobs:
+        counts[job.state] = counts.get(job.state, 0) + 1
+    total = len(jobs)
+
+    unfiltered = jobs
+    if wanted:
+        jobs = [j for j in jobs if j.state == wanted]
+
+    return jobs, unfiltered, {
+        "search": search,
+        "status_filter": wanted,
+        "status_choices": [
+            {"value": v, "label": label, "count": counts.get(v, 0)}
+            for v, label in JOB_STATES
+        ],
+        "total_count": total,
+        "all_count": all_count,
+        "shown_count": len(jobs),
+    }
+
+
 @otp_required(login_url="migrator:login")
 def backups(request: HttpRequest) -> HttpResponse:
     """List backup jobs with their size on disk — own only, or all for admins."""
-    jobs = list(_visible_backup_jobs(request.user).select_related("owner"))
+    jobs, all_jobs, list_ctx = _job_list_context(
+        request,
+        _visible_backup_jobs(request.user).select_related("owner"),
+        ["name", "username", "host", "owner__username"],
+    )
     # Admins act on every row; everyone else only ever sees their own.
     can_manage_all = _is_admin(request.user)
     for job in jobs:
@@ -1834,9 +1957,10 @@ def backups(request: HttpRequest) -> HttpResponse:
     return render(request, "migrator/backups.html", {
         "jobs": jobs,
         "scheduler": health(),
-        "any_scheduled": any(j.schedule_is_on for j in jobs),
+        "any_scheduled": any(j.schedule_is_on for j in all_jobs),
         "is_admin_view": _is_admin(request.user),
         "nav_active": "backups",
+        **list_ctx,
     })
 
 
@@ -2092,8 +2216,10 @@ def _editable_restore_jobs(user):
 
 @otp_required(login_url="migrator:login")
 def restores(request: HttpRequest) -> HttpResponse:
-    jobs = list(
-        _visible_restore_jobs(request.user).select_related("source_backup", "owner")
+    jobs, _all_jobs, list_ctx = _job_list_context(
+        request,
+        _visible_restore_jobs(request.user).select_related("source_backup", "owner"),
+        ["name", "username", "host", "owner__username", "source_backup__name"],
     )
     can_manage_all = _is_admin(request.user)
     for job in jobs:
@@ -2103,6 +2229,7 @@ def restores(request: HttpRequest) -> HttpResponse:
         "jobs": jobs,
         "is_admin_view": _is_admin(request.user),
         "nav_active": "restores",
+        **list_ctx,
     })
 
 

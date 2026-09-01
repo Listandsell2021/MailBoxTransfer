@@ -699,3 +699,52 @@ def launch_phase(migration_id: int, phase: str, resumed: bool = False, **kwargs)
     STATE.register_thread(migration_id, phase, t)
     t.start()
     return True
+
+
+# The two phases the "Backup + Transfer" button runs back to back, in order.
+CHAIN_BACKUP_TRANSFER = (PhaseRun.PHASE_BACKUP, PhaseRun.PHASE_TRANSFER)
+
+
+def run_backup_then_transfer(migration_id: int, resumed: bool = False) -> None:
+    """Back up, then transfer straight away if the backup came out green.
+
+    Transfer is normally gated behind a finished backup, so a user who wants
+    the whole copy done has to come back and press Run a second time — often
+    much later, since a backup takes as long as the mailbox is big. This runs
+    both in the one thread so the gate is satisfied by the time transfer
+    starts, and stops at the gate if the backup failed or was interrupted.
+    """
+    run_backup(migration_id, resumed=resumed)
+
+    last = (
+        PhaseRun.objects.filter(
+            migration_id=migration_id, phase=PhaseRun.PHASE_BACKUP
+        )
+        .order_by("-id")
+        .first()
+    )
+    hub = STATE.hub(migration_id)
+    if last is None or last.status != PhaseRun.STATUS_SUCCESS:
+        _log(hub, "error", "Transfer skipped — the backup did not complete.")
+        return
+
+    _log(hub, "info", "Backup finished; starting transfer automatically.")
+    run_transfer(migration_id)
+
+
+def launch_backup_then_transfer(migration_id: int, resumed: bool = False) -> bool:
+    """Start the backup→transfer chain in one thread. False if either phase of
+    it is already running in this process."""
+    if any(STATE.is_running(migration_id, p) for p in CHAIN_BACKUP_TRANSFER):
+        return False
+    t = threading.Thread(
+        target=lambda: run_backup_then_transfer(migration_id, resumed=resumed),
+        name=f"phase-chain-{migration_id}",
+        daemon=True,
+    )
+    # Registered under both phases: while the chain runs, neither Backup nor
+    # Transfer may be started a second time from anywhere else.
+    for p in CHAIN_BACKUP_TRANSFER:
+        STATE.register_thread(migration_id, p, t)
+    t.start()
+    return True

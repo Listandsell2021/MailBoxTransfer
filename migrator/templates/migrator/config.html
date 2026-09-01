@@ -94,7 +94,14 @@
           <h2 style="font-size:16px; margin:0 0 4px;">Folder mapping</h2>
           <p class="lead" style="margin:0;">Click <b>Test connection</b> to list folders and auto-pair them.</p>
         </div>
-        <span id="test-status" class="muted" style="font-size: 13px;"></span>
+        <span id="test-status" class="muted" style="font-size: 13px;">
+          {% if source_message_total is not None %}
+            <span style="color:var(--green); font-weight:600;">
+              {{ mappings|length }} folder{{ mappings|length|pluralize }} on source ·
+              {{ source_message_total }} message{{ source_message_total|pluralize }} to migrate
+            </span>
+          {% endif %}
+        </span>
       </div>
 
       {% if not has_creds %}
@@ -181,7 +188,7 @@
       {% endif %}
       <button type="submit" class="btn btn-primary" id="btn-save">
         <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-        Save
+        Save & Continue
       </button>
     </div>
   </form>
@@ -313,7 +320,10 @@ btnTest.addEventListener('click', async () => {
       status.innerHTML = `<span style="color:var(--red); font-weight:600;">✗ ${escapeHtml(data.error || 'Connection failed')}</span>`;
       return;
     }
-    status.innerHTML = `<span style="color:var(--green); font-weight:600;">✓ ${data.old_folder_count} folders on source · ${data.new_folder_count} on destination</span>`;
+    const total = (data.old_message_total || 0).toLocaleString();
+    status.innerHTML = `<span style="color:var(--green); font-weight:600;">`
+      + `✓ ${data.old_folder_count} folders on source · ${data.new_folder_count} on destination`
+      + ` · ${total} message${data.old_message_total === 1 ? '' : 's'} to migrate</span>`;
     setRowsFromPayload(data.rows, data.new_folder_names);
     btnSave.disabled = false;
     btnSave.title = '';

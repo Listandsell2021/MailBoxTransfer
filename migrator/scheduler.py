@@ -55,7 +55,29 @@ def compute_next_run(job: BackupJob, after=None) -> datetime | None:
     minute = min(int(job.schedule_minute or 0), 59)
     hour = min(int(job.schedule_hour or 0), 23)
 
-    if job.schedule == BackupJob.SCHEDULE_HOURLY:
+    if job.schedule == BackupJob.SCHEDULE_5M:
+        # Twelve slots an hour, anchored to the saved minute folded into the
+        # first five: saved at 11:27 gives :02, :07, :12 … :57.
+        candidate = now_local.replace(minute=minute % 5, second=0, microsecond=0)
+        while candidate <= now_local:
+            candidate += timedelta(minutes=5)
+
+    elif job.schedule == BackupJob.SCHEDULE_10M:
+        # Six slots an hour, anchored to the saved minute folded into the first
+        # ten: saved at 11:27 gives :07, :17, :27, :37, :47, :57.
+        candidate = now_local.replace(minute=minute % 10, second=0, microsecond=0)
+        while candidate <= now_local:
+            candidate += timedelta(minutes=10)
+
+    elif job.schedule == BackupJob.SCHEDULE_30M:
+        # Two slots an hour, anchored to the saved minute folded into the first
+        # half hour: saved at 11:27 gives :27 and :57, saved at 11:42 gives
+        # :12 and :42.
+        candidate = now_local.replace(minute=minute % 30, second=0, microsecond=0)
+        while candidate <= now_local:
+            candidate += timedelta(minutes=30)
+
+    elif job.schedule == BackupJob.SCHEDULE_HOURLY:
         candidate = now_local.replace(minute=minute, second=0, microsecond=0)
         while candidate <= now_local:
             candidate += timedelta(hours=1)

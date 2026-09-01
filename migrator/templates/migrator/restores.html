@@ -16,6 +16,7 @@
 </div>
 
 <div class="card" style="padding: 0; overflow: hidden;">
+  {% include "migrator/_list_toolbar.html" with noun="import" search_placeholder="Search destination, server, backup or user" %}
   {% if jobs %}
     <div class="table-wrap" style="--table-min-w: 1120px;">
     <table>
@@ -60,11 +61,8 @@
             </div>
           </td>
           <td>
-            {% if job.status == 'success' %}<span class="pill green">Complete</span>
-            {% elif job.is_stalled or job.interrupted %}<span class="pill red" title="The process running this was killed — open it to pick it back up">Interrupted</span>
-            {% elif job.status == 'running' %}<span class="pill sky">Running</span>
-            {% elif job.status == 'failed' %}<span class="pill red">Failed</span>
-            {% else %}<span class="pill grey">Not run</span>{% endif %}
+            <span class="badge-status {{ job.state }}"
+                  {% if job.state == 'interrupted' %}title="The process running this was killed — open it to pick it back up"{% endif %}>{{ job.state_label }}</span>
           </td>
           <td style="font-variant-numeric: tabular-nums;">{{ job.imported }}</td>
           <td style="font-variant-numeric: tabular-nums;" class="muted">{{ job.skipped }}</td>
@@ -93,11 +91,17 @@
   {% else %}
     <div class="empty">
       <svg class="icon-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+      {% if search or status_filter %}
+      <b>{% if search %}Nothing matches “{{ search }}”{% else %}No imports with that status{% endif %}</b>
+      {{ all_count }} import{{ all_count|pluralize }} in total.
+      <div style="margin-top:14px;"><a class="btn btn-grey" href="?">Clear search and filter</a></div>
+      {% else %}
       <b>No imports yet</b>
       Upload a backup archive and put its mail into any mailbox.
       <div style="margin-top:14px;">
         <a class="btn btn-primary" href="{% url 'migrator:restore_new' %}">+ New import</a>
       </div>
+      {% endif %}
     </div>
   {% endif %}
 </div>

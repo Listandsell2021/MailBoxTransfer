@@ -505,6 +505,67 @@
   .badge-status.in-progress { background: #fef3c7; color: #92400e; }
   .badge-status.interrupted { background: var(--red-bg); color: #991b1b; }
 
+  /* A backup or restore job describes one run rather than a ladder of phases,
+     so it gets its own states in the same pill. `complete` and `interrupted`
+     above are shared. */
+  .badge-status.not-run {
+    background: transparent; border-color: var(--card-border);
+    border-style: dashed; color: var(--muted);
+  }
+  .badge-status.running { background: #eff6ff; color: var(--sky-dark); }
+  .badge-status.failed  { background: var(--red-bg); color: #991b1b; }
+
+  /* List toolbar: status filter + search above a table. Shared by the
+     migrations, backups and restores lists so the three can't drift apart. */
+  .toolbar {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    padding: 12px 16px; border-bottom: 1px solid var(--card-border);
+    background: #fafbfc;
+  }
+  /* The form takes the free width so the search field can stretch into it,
+     while the count stays pinned to the right of the toolbar. */
+  .toolbar form { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
+  .toolbar label {
+    font-size: 11px; font-weight: 600; color: var(--muted);
+    text-transform: uppercase; letter-spacing: .05em;
+  }
+  .toolbar select { width: auto; min-width: 190px; padding: 7px 32px 7px 11px; font-size: 13px; }
+  .toolbar .count { margin-left: auto; font-size: 12.5px; color: var(--muted); }
+
+  /* Search box: the icon sits inside the field, and a clear button appears
+     in its place once there is something to clear. */
+  .search-box {
+    position: relative; display: flex; align-items: center;
+    flex: 1; min-width: 200px; max-width: 560px;
+  }
+  .search-box .icon-sm {
+    position: absolute; left: 10px; width: 15px; height: 15px;
+    color: var(--muted); pointer-events: none;
+  }
+  .search-box input {
+    width: 100%; padding: 7px 32px 7px 32px; font-size: 13px;
+    border: 1px solid var(--card-border); border-radius: var(--r-sm);
+    background: #fff; color: var(--text); font-family: inherit;
+  }
+  .search-box input::placeholder { color: var(--muted); }
+  /* Chrome/Safari draw their own clear "x" on type=search — hide it, we have one
+     that also drops the query from the URL. */
+  .search-box input::-webkit-search-cancel-button,
+  .search-box input::-webkit-search-decoration { -webkit-appearance: none; appearance: none; }
+  .search-box input:focus {
+    outline: none; border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(79,70,229,.12);
+  }
+  .search-box .clear {
+    position: absolute; right: 6px;
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 22px; height: 22px; padding: 0; border-radius: 999px;
+    background: transparent; border: 0; cursor: pointer;
+    color: var(--muted); text-decoration: none; font-size: 15px; line-height: 1;
+  }
+  .search-box .clear:hover { background: var(--subtle); color: var(--text); }
+  @media (max-width: 560px) { .search-box { max-width: none; flex-basis: 100%; } }
+
   /* Progress bar */
   .progress {
     background: #e5e7eb; height: 6px; border-radius: 999px;

@@ -1,0 +1,43 @@
+{% comment %}
+The status filter + search bar that sits above a list table.
+
+    {% include "migrator/_list_toolbar.html" with noun="backup" search_placeholder="Search mailbox, server or user" %}
+
+Shared by the migrations, backups and restores lists so the three can't drift
+apart. The view supplies search / status_filter / status_choices / total_count
+/ all_count / shown_count. `sort` and `dir` exist only on the migrations list;
+they ride along as hidden fields so searching doesn't reset the sort order.
+{% endcomment %}
+<div class="toolbar">
+  <form method="get">
+    {% if sort %}<input type="hidden" name="sort" value="{{ sort }}">{% endif %}
+    {% if dir %}<input type="hidden" name="dir" value="{{ dir }}">{% endif %}
+    <label for="status-filter">Status</label>
+    <select id="status-filter" name="status" onchange="this.form.submit()">
+      <option value="">All statuses ({{ total_count }})</option>
+      {% for s in status_choices %}
+        <option value="{{ s.value }}" {% if s.value == status_filter %}selected{% endif %}
+                {% if not s.count %}disabled{% endif %}>{{ s.label }} ({{ s.count }})</option>
+      {% endfor %}
+    </select>
+    <div class="search-box">
+      <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input type="search" id="q" name="q" value="{{ search }}"
+             placeholder="{{ search_placeholder|default:'Search' }}"
+             aria-label="Search {{ noun }}s" autocomplete="off">
+      {% if search %}
+        <a class="clear" title="Clear search"
+           href="?{% if sort %}sort={{ sort }}&amp;dir={{ dir }}&amp;{% endif %}{% if status_filter %}status={{ status_filter }}{% endif %}">&times;</a>
+      {% endif %}
+    </div>
+    <noscript><button class="btn btn-grey" type="submit">Apply</button></noscript>
+  </form>
+  {% if status_filter %}
+    <a class="btn btn-grey"
+       href="?{% if sort %}sort={{ sort }}&amp;dir={{ dir }}&amp;{% endif %}{% if search %}q={{ search|urlencode }}{% endif %}">Clear filter</a>
+  {% endif %}
+  <span class="count">
+    {% if status_filter or search %}{{ shown_count }} of {{ all_count }}{% else %}{{ all_count }}{% endif %}
+    {{ noun }}{{ all_count|pluralize }}
+  </span>
+</div>

@@ -135,10 +135,68 @@
     display: block; color: var(--muted); font-size: 11.5px; margin-top: 1px;
     font-variant-numeric: tabular-nums;
   }
+  /* One envelope makes the trip: it leaves the old mailbox, glides along the
+     rail, and lands on the new one, which flashes as it arrives. Only while a
+     phase is running — an idle page stays perfectly still. A single letter,
+     not a stream of them: three at once read as clip art. */
   .route .arrow {
-    display: flex; align-items: center; justify-content: center;
-    width: 26px; height: 26px; border-radius: 999px; flex-shrink: 0;
-    background: var(--subtle); color: var(--muted);
+    position: relative; flex-shrink: 0;
+    width: 96px; height: 26px;
+    color: var(--muted);
+  }
+  .route .arrow .rail {
+    position: absolute; left: 2px; right: 17px; top: 50%;
+    height: 3px; margin-top: -1.5px;
+    border-radius: 999px;
+    background: var(--card-border);
+  }
+  .route[data-moving] .arrow .rail { background: var(--flow-soft, #e0e7ff); }
+  .route .arrow .tip {
+    position: absolute; right: 0; top: 50%; margin-top: -7px;
+    display: flex; transition: color .2s;
+  }
+  .route[data-moving] .arrow .tip { color: var(--flow, var(--primary)); }
+  .route .arrow .mail {
+    position: absolute; left: 0; top: 50%; margin-top: -8px;
+    display: none; align-items: center; line-height: 0;
+    padding: 1px 3px; border-radius: 5px;
+    color: var(--flow, var(--primary));
+    /* Sits on the card's own background so the rail doesn't run through
+       the glyph as it passes. */
+    background: var(--card);
+  }
+  .route[data-moving] .arrow .mail {
+    display: flex;
+    animation: mailfly 2.2s ease-in-out infinite;
+  }
+  /* Which end of the route the running phase is talking to: backup reads the
+     old server, transfer writes the new one, verify reads both. */
+  .route[data-moving="backup"]   { --flow: var(--sky);     --flow-soft: #dbeafe; }
+  .route[data-moving="transfer"] { --flow: var(--primary); --flow-soft: #e0e7ff; }
+  .route[data-moving="verify"]   { --flow: var(--green);   --flow-soft: #d1fae5; }
+  .route[data-moving] .box.from .dot { animation: dotsend 2.2s ease-out infinite; }
+  .route[data-moving] .box.to   .dot { animation: dotland 2.2s ease-out infinite; }
+  @keyframes mailfly {
+    0%   { transform: translateX(2px)  scale(.5); opacity: 0; }
+    14%  { transform: translateX(8px)  scale(1);  opacity: 1; }
+    68%  { transform: translateX(54px) scale(1);  opacity: 1; }
+    86%  { transform: translateX(68px) scale(.85); opacity: .6; }
+    100% { transform: translateX(74px) scale(.5); opacity: 0; }
+  }
+  @keyframes dotsend {
+    0%       { box-shadow: 0 0 0 0 rgba(79,70,229,.30); }
+    22%, 100%{ box-shadow: 0 0 0 6px rgba(79,70,229,0); }
+  }
+  @keyframes dotland {
+    0%, 72%  { box-shadow: 0 0 0 0 rgba(79,70,229,0); }
+    82%      { box-shadow: 0 0 0 0 rgba(79,70,229,.32); }
+    100%     { box-shadow: 0 0 0 7px rgba(79,70,229,0); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .route .arrow .mail,
+    .route .box .dot { animation: none !important; }
+    .route[data-moving] .arrow .mail { display: none; }
+    .route[data-moving] .arrow .rail { background: var(--flow, var(--primary)); }
   }
   @media (max-width: 620px) {
     .route { flex-direction: column; align-items: stretch; gap: 4px; width: 100%; }
@@ -163,8 +221,10 @@
           <span class="host">{{ migration.old_host }}:{{ migration.old_port }}</span>
         </span>
       </div>
-      <span class="arrow">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+      <span class="arrow" aria-hidden="true">
+        <span class="rail"></span>
+        <span class="mail"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 6L2 7"/></svg></span>
+        <span class="tip"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></span>
       </span>
       <div class="box to">
         <span class="dot">
@@ -260,6 +320,11 @@
         </div>
       </div>
       <div class="action">
+        <button class="btn btn-primary js-chainbtn" title="Run the backup and, as soon as it finishes, the transfer — without coming back to press Run again"
+                {% if not can_run.backup %}disabled{% endif %}>
+          <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg>
+          Backup + Transfer
+        </button>
         <button class="btn run-btn js-runbtn {% if s.status == 'success' %}btn-grey{% else %}btn-sky{% endif %}"
                 data-phase="backup" {% if not can_run.backup %}disabled{% endif %}>
           {% if s.stalled %}Resume{% elif s.status == "success" %}Re-run{% elif s.status == "running" %}Running…{% else %}Run{% endif %}
@@ -522,6 +587,78 @@ document.querySelectorAll('.run-btn').forEach(btn => {
     }
   });
 });
+
+// ----- "Backup + Transfer": one click, both phases -----
+// The server runs them in a single thread, so transfer starts the moment the
+// backup lands green and the usual "backup must complete first" gate is
+// already satisfied. Here we only keep the button honest: it stays disabled
+// while either phase is in flight, whichever process is doing the work.
+const chainBtn = document.querySelector('.js-chainbtn');
+function chainBusy() {
+  return ['backup', 'transfer'].some(p => {
+    const c = document.querySelector(`.phase[data-phase="${p}"]`);
+    return c && c.dataset.state === 'running';
+  });
+}
+function syncChainBtn() {
+  if (!chainBtn || chainBtn.dataset.blocked === '1') return;
+  chainBtn.disabled = chainBusy();
+}
+if (chainBtn) {
+  if (chainBtn.disabled) chainBtn.dataset.blocked = '1';  // no credentials — leave it alone
+  chainBtn.addEventListener('click', async () => {
+    const backupCard = document.querySelector('.phase[data-phase="backup"]');
+    const transferCard = document.querySelector('.phase[data-phase="transfer"]');
+    chainBtn.disabled = true;
+    setRunBtn(backupCard, 'Starting…', true);
+    let data;
+    try {
+      const resp = await fetch(`/dashboard/${MIG_ID}/start/backup_transfer/`, {
+        method: 'POST', headers: {'X-CSRFToken': csrf},
+      });
+      data = await resp.json();
+    } catch (e) { data = {ok: false}; }
+    if (!data.ok) {
+      mtSwal.error(data.error || 'Failed to start', 'Could not start Backup + Transfer');
+      setRunBtn(backupCard, 'Run', false, 'btn-sky');
+      chainBtn.disabled = false;
+      return;
+    }
+    if (!data.started) {
+      // Backup or transfer was already in flight — nothing new was launched,
+      // so reload rather than paint a state the server doesn't agree with.
+      mtSwal.toast('Already running', 'info');
+      setTimeout(() => location.reload(), 800);
+      return;
+    }
+    setRunBtn(backupCard, 'Running…', true, 'btn-sky');
+    backupCard.dataset.state = 'running';
+    backupCard.querySelector('.js-statustext').textContent = 'Running';
+    if (transferCard) {
+      transferCard.querySelector('.js-statustext').textContent = 'Queued';
+      transferCard.querySelector('.js-subtext').textContent =
+        'Starts automatically as soon as the backup finishes.';
+    }
+  });
+  syncChainBtn();
+}
+
+// ----- Route animation -----
+// Envelopes fly between the two mailboxes while a phase is actually running.
+// Driven off the phase rows' data-state, so it follows SSE, the DB poll and a
+// phase resumed in the scheduler container alike — one source of truth.
+const routeEl = document.querySelector('.route');
+function syncRoute() {
+  if (!routeEl) return;
+  const active = ['backup', 'transfer', 'verify'].find(p => {
+    const c = document.querySelector(`.phase[data-phase="${p}"]`);
+    return c && c.dataset.state === 'running';
+  });
+  if (active) routeEl.dataset.moving = active;
+  else delete routeEl.dataset.moving;
+}
+syncRoute();
+setInterval(() => { syncChainBtn(); syncRoute(); }, 1000);
 
 // ----- Poll the database as well as the event stream -----
 // Hubs are per-process, so a phase the supervisor resumed in the scheduler

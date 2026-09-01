@@ -24,54 +24,6 @@
   th.sorted a.sort { color: var(--primary); }
   th.sorted a.sort .ind { color: var(--primary); opacity: 1; font-size: 10px; }
 
-  .toolbar {
-    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
-    padding: 12px 16px; border-bottom: 1px solid var(--card-border);
-    background: #fafbfc;
-  }
-  /* The form takes the free width so the search field can stretch into it,
-     while the count stays pinned to the right of the toolbar. */
-  .toolbar form { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
-  .toolbar label {
-    font-size: 11px; font-weight: 600; color: var(--muted);
-    text-transform: uppercase; letter-spacing: .05em;
-  }
-  .toolbar select { width: auto; min-width: 190px; padding: 7px 32px 7px 11px; font-size: 13px; }
-  .toolbar .count { margin-left: auto; font-size: 12.5px; color: var(--muted); }
-
-  /* Search box: the icon sits inside the field, and a clear button appears
-     in its place once there is something to clear. */
-  .search-box {
-    position: relative; display: flex; align-items: center;
-    flex: 1; min-width: 200px; max-width: 560px;
-  }
-  .search-box .icon-sm {
-    position: absolute; left: 10px; width: 15px; height: 15px;
-    color: var(--muted); pointer-events: none;
-  }
-  .search-box input {
-    width: 100%; padding: 7px 32px 7px 32px; font-size: 13px;
-    border: 1px solid var(--card-border); border-radius: var(--r-sm);
-    background: #fff; color: var(--text); font-family: inherit;
-  }
-  .search-box input::placeholder { color: var(--muted); }
-  /* Chrome/Safari draw their own clear "x" on type=search — hide it, we have one
-     that also drops the query from the URL. */
-  .search-box input::-webkit-search-cancel-button,
-  .search-box input::-webkit-search-decoration { -webkit-appearance: none; appearance: none; }
-  .search-box input:focus {
-    outline: none; border-color: var(--primary);
-    box-shadow: 0 0 0 3px rgba(79,70,229,.12);
-  }
-  .search-box .clear {
-    position: absolute; right: 6px;
-    display: inline-flex; align-items: center; justify-content: center;
-    width: 22px; height: 22px; padding: 0; border-radius: 999px;
-    background: transparent; border: 0; cursor: pointer;
-    color: var(--muted); text-decoration: none; font-size: 15px; line-height: 1;
-  }
-  .search-box .clear:hover { background: var(--subtle); color: var(--text); }
-  @media (max-width: 560px) { .search-box { max-width: none; flex-basis: 100%; } }
 </style>
 
 <div class="page-head">
@@ -88,38 +40,7 @@
 </div>
 
 <div class="card" style="padding: 0; overflow: hidden;">
-  <div class="toolbar">
-    <form method="get">
-      <input type="hidden" name="sort" value="{{ sort }}">
-      <input type="hidden" name="dir" value="{{ dir }}">
-      <label for="status-filter">Status</label>
-      <select id="status-filter" name="status" onchange="this.form.submit()">
-        <option value="">All statuses ({{ total_count }})</option>
-        {% for s in status_choices %}
-          <option value="{{ s.value }}" {% if s.value == status_filter %}selected{% endif %}
-                  {% if not s.count %}disabled{% endif %}>{{ s.label }} ({{ s.count }})</option>
-        {% endfor %}
-      </select>
-      <div class="search-box">
-        <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-        <input type="search" id="q" name="q" value="{{ search }}"
-               placeholder="Search label, address, server or user"
-               aria-label="Search migrations" autocomplete="off">
-        {% if search %}
-          <a class="clear" title="Clear search"
-             href="?sort={{ sort }}&amp;dir={{ dir }}{% if status_filter %}&amp;status={{ status_filter }}{% endif %}">&times;</a>
-        {% endif %}
-      </div>
-      <noscript><button class="btn btn-grey" type="submit">Apply</button></noscript>
-    </form>
-    {% if status_filter %}
-      <a class="btn btn-grey" href="?sort={{ sort }}&amp;dir={{ dir }}{% if search %}&amp;q={{ search|urlencode }}{% endif %}">Clear filter</a>
-    {% endif %}
-    <span class="count">
-      {% if status_filter or search %}{{ shown_count }} of {{ all_count }}{% else %}{{ all_count }}{% endif %}
-      migration{{ all_count|pluralize }}
-    </span>
-  </div>
+  {% include "migrator/_list_toolbar.html" with noun="migration" search_placeholder="Search label, address, server or user" %}
   {% if migrations %}
     <div class="table-wrap" style="--table-min-w: 1080px;">
     <table>

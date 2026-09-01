@@ -106,6 +106,10 @@ class FolderMapping(models.Model):
     action = models.CharField(max_length=10, choices=ACTION_CHOICES, default=ACTION_MAP)
     pairing_reason = models.CharField(max_length=20, blank=True)
     special_use = models.CharField(max_length=20, blank=True)
+    # How many messages the source folder held the last time Test connection
+    # ran. Null means "never counted" — which is not the same as an empty
+    # folder, and the screens say so ("—" rather than "0 messages").
+    old_message_count = models.PositiveIntegerField(null=True, blank=True)
 
     class Meta:
         unique_together = [("migration", "old_folder")]
@@ -286,12 +290,18 @@ class BackupJob(LiveRun):
     # is what a user picking "03:00" means. `next_run_at` is stored UTC like
     # every other datetime and is what the scheduler actually queries on.
     SCHEDULE_OFF = "off"
+    SCHEDULE_5M = "5m"
+    SCHEDULE_10M = "10m"
+    SCHEDULE_30M = "30m"
     SCHEDULE_HOURLY = "hourly"
     SCHEDULE_6H = "6h"
     SCHEDULE_DAILY = "daily"
     SCHEDULE_WEEKLY = "weekly"
     SCHEDULE_CHOICES = [
         (SCHEDULE_OFF, "Off — run manually"),
+        (SCHEDULE_5M, "Every 5 minutes"),
+        (SCHEDULE_10M, "Every 10 minutes"),
+        (SCHEDULE_30M, "Every 30 minutes"),
         (SCHEDULE_HOURLY, "Every hour"),
         (SCHEDULE_6H, "Every 6 hours"),
         (SCHEDULE_DAILY, "Every day"),
@@ -332,6 +342,20 @@ class BackupJob(LiveRun):
         hhmm = f"{self.schedule_hour:02d}:{self.schedule_minute:02d}"
         if self.schedule == self.SCHEDULE_OFF:
             return "Manual only"
+        if self.schedule == self.SCHEDULE_5M:
+            # Twelve slots an hour, anchored to the saved minute folded into
+            # the first five: saved at 11:27 gives :02, :07, :12 … :57.
+            return f"Every 5 minutes at :{self.schedule_minute:02d} past each five"
+        if self.schedule == self.SCHEDULE_10M:
+            # Six slots an hour, anchored to the saved minute folded into the
+            # first ten: saved at 11:27 gives :07, :17, :27 … :57.
+            return f"Every 10 minutes at :{self.schedule_minute:02d} past each ten"
+        if self.schedule == self.SCHEDULE_30M:
+            # Anchored like hourly, so a job saved at 11:27 runs :27 and :57.
+            other = (self.schedule_minute + 30) % 60
+            return (
+                f"Every 30 minutes at :{self.schedule_minute:02d} and :{other:02d}"
+            )
         if self.schedule == self.SCHEDULE_HOURLY:
             # The minute is the one the schedule was saved at, so an hourly job
             # set up at 11:27 reads "Every hour at :27" and runs 12:27, 13:27…
