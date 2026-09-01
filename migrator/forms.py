@@ -173,6 +173,18 @@ class BackupScheduleForm(forms.ModelForm):
         # 6-hourly keeps its fixed 00/06/12/18 slots.
         if cleaned.get("schedule") == BackupJob.SCHEDULE_HOURLY:
             cleaned["schedule_minute"] = timezone.localtime().minute
+        elif cleaned.get("schedule") == BackupJob.SCHEDULE_30M:
+            # Same anchoring, folded into the first half hour so the two slots
+            # are always :mm and :mm+30.
+            cleaned["schedule_minute"] = timezone.localtime().minute % 30
+        elif cleaned.get("schedule") == BackupJob.SCHEDULE_5M:
+            # Folded into the first five minutes, so the twelve slots are
+            # :mm, :mm+5 … :mm+55.
+            cleaned["schedule_minute"] = timezone.localtime().minute % 5
+        elif cleaned.get("schedule") == BackupJob.SCHEDULE_10M:
+            # Folded into the first ten minutes, so the six slots are
+            # :mm, :mm+10 … :mm+50.
+            cleaned["schedule_minute"] = timezone.localtime().minute % 10
         elif cleaned.get("schedule") == BackupJob.SCHEDULE_6H:
             cleaned["schedule_minute"] = 0
         return cleaned

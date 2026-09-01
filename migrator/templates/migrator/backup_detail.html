@@ -461,6 +461,26 @@ const weekdaySelect = document.getElementById('id_schedule_weekday');
 const previewEl = document.getElementById('schedule-preview');
 
 function schedulePreview(v, hh, mm, dayText) {
+  if (v === '5m') {
+    // Anchored to the minute you press Save, folded into the first five.
+    const first = new Date().getMinutes() % 5;
+    const slots = [0, 1, 2].map(n => ':' + String(first + n * 5).padStart(2, '0')).join(', ');
+    return `Runs <b>every 5 minutes</b> — save now and it runs at ${slots} and so on, twelve times an hour.`;
+  }
+  if (v === '10m') {
+    // Anchored to the minute you press Save, folded into the first ten.
+    const first = new Date().getMinutes() % 10;
+    const slots = [0, 1, 2].map(n => ':' + String(first + n * 10).padStart(2, '0')).join(', ');
+    return `Runs <b>every 10 minutes</b> — save now and it runs at ${slots} and so on, six times an hour.`;
+  }
+  if (v === '30m') {
+    // Anchored to the minute you press Save, folded into the first half hour.
+    const now = new Date();
+    const first = now.getMinutes() % 30;
+    const a = String(first).padStart(2, '0');
+    const b = String(first + 30).padStart(2, '0');
+    return `Runs <b>every 30 minutes at :${a} and :${b}</b> — save now and it runs twice an hour, around the clock.`;
+  }
   if (v === 'hourly') {
     // Hourly is anchored to the minute you press Save, so spell out the real
     // times: saving at 11:27 means 12:27, 13:27, 14:27…
