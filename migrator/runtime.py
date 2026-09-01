@@ -128,18 +128,27 @@ def load_credentials(migration_id: int) -> Credentials | None:
         return creds
 
     # Lazy imports to avoid a circular dependency (models / crypto pull in settings).
+    from .credentials import recall
     from .crypto import decrypt
     from .models import Migration
 
     try:
         row = Migration.objects.only(
-            "old_password_enc", "new_password_enc"
+            "owner_id", "old_password_enc", "new_password_enc",
+            "old_host", "old_username", "new_host", "new_username",
         ).get(pk=migration_id)
     except Migration.DoesNotExist:
         return None
 
     old = decrypt(bytes(row.old_password_enc)) if row.old_password_enc else ""
     new = decrypt(bytes(row.new_password_enc)) if row.new_password_enc else ""
+    # Nothing on the row: fall back to what the owner saved for that mailbox
+    # elsewhere. Covers a migration created before this store existed, and a
+    # row whose ciphertext this host's key cannot read.
+    if not old:
+        old = recall(row.owner_id, row.old_host, row.old_username)
+    if not new:
+        new = recall(row.owner_id, row.new_host, row.new_username)
     if not (old or new):
         return None
 

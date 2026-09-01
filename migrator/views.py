@@ -37,6 +37,7 @@ from .models import (
     AccessEvent, BackupJob, BackupMessage, FolderMapping, Migration,
     MessageRecord, PhaseRun, RestoreJob, UserProfile, VerificationReport,
 )
+from .credentials import recall as recall_password, remember as remember_password
 from .phases import CleanupGate, launch_backup_then_transfer, launch_phase
 from .runtime import STATE, Credentials, load_credentials
 from .crypto import encrypt
@@ -751,8 +752,20 @@ def config(request: HttpRequest, migration_id: int | None = None) -> HttpRespons
                 obj.owner = request.user
             obj.save()
             existing = load_credentials(obj.pk) or Credentials()
-            new_old = form.cleaned_data.get("old_password") or existing.old_password
-            new_new = form.cleaned_data.get("new_password") or existing.new_password
+            # Typed > already on this migration > saved for that mailbox
+            # earlier. The last step is what stops a user re-typing the same
+            # mailbox password for every migration they set up.
+            new_old = (
+                form.cleaned_data.get("old_password") or existing.old_password
+                or recall_password(obj.owner_id, obj.old_host, obj.old_username)
+            )
+            new_new = (
+                form.cleaned_data.get("new_password") or existing.new_password
+                or recall_password(obj.owner_id, obj.new_host, obj.new_username)
+            )
+            # Whatever we ended up with is this mailbox's password from now on.
+            remember_password(obj.owner_id, obj.old_host, obj.old_username, new_old)
+            remember_password(obj.owner_id, obj.new_host, obj.new_username, new_new)
             STATE.set_credentials(obj.pk, Credentials(
                 old_password=new_old,
                 new_password=new_new,
@@ -1098,10 +1111,19 @@ def _overall_statuses(migrations) -> dict[int, str]:
 def dashboard(request: HttpRequest, migration_id: int) -> HttpResponse:
     migration = get_object_or_404(_editable_migrations(request.user), pk=migration_id)
     summary = _phase_summary(migration)
-    has_creds = bool(load_credentials(migration_id))
+    # Per side, not "some password exists". A migration holding only the
+    # destination password used to look ready: Run was enabled, no warning
+    # showed, and the blank source password went to the mail server, which
+    # answered "[AUTHENTICATIONFAILED]" — a wrong-password message for a
+    # missing-password problem. Backup reads the source; transfer and verify
+    # need both ends.
+    creds = load_credentials(migration_id)
+    has_old = bool(creds and creds.old_password)
+    has_new = bool(creds and creds.new_password)
+    has_creds = has_old and has_new
 
     can_run = {
-        "backup": has_creds,
+        "backup": has_old,
         "transfer": has_creds and summary["backup"]["status"] == PhaseRun.STATUS_SUCCESS,
         "verify": has_creds and summary["transfer"]["status"] == PhaseRun.STATUS_SUCCESS,
     }
@@ -1116,6 +1138,12 @@ def dashboard(request: HttpRequest, migration_id: int) -> HttpResponse:
         "any_stalled": any_stalled,
         "cleanup_unlocked": cleanup_unlocked,
         "has_creds": has_creds,
+        "missing_password_sides": [
+            label for label, present in (
+                (f"source ({migration.old_username})", has_old),
+                (f"destination ({migration.new_username})", has_new),
+            ) if not present
+        ],
         "nav_active": "migrations",
     })
 
@@ -1125,21 +1153,45 @@ def dashboard(request: HttpRequest, migration_id: int) -> HttpResponse:
 CHAIN_BACKUP_TRANSFER = "backup_transfer"
 
 
+def _credential_error(migration: Migration, needs_destination: bool) -> str | None:
+    """Say which password is missing, or None when the phase can run.
+
+    Checking "are there any credentials" is not enough: with only the
+    destination password saved, backup signs in to the source with a blank one
+    and the mail server reports an authentication failure — which reads as a
+    wrong password rather than a missing one.
+    """
+    creds = load_credentials(migration.pk)
+    missing = []
+    if not (creds and creds.old_password):
+        missing.append(f"source ({migration.old_username})")
+    if needs_destination and not (creds and creds.new_password):
+        missing.append(f"destination ({migration.new_username})")
+    if not missing:
+        return None
+    return (
+        "No password saved for the " + " and the ".join(missing) + " mailbox. "
+        "Enter it on the configuration screen and save."
+    )
+
+
 @otp_required(login_url="migrator:login")
 @require_POST
 def start_phase(request: HttpRequest, migration_id: int, phase: str) -> HttpResponse:
-    if phase == CHAIN_BACKUP_TRANSFER:
-        migration = get_object_or_404(_editable_migrations(request.user), pk=migration_id)
-        if not load_credentials(migration.pk):
-            return JsonResponse({"ok": False, "error": "No credentials saved for this migration"}, status=400)
-        return JsonResponse({"ok": True, "started": launch_backup_then_transfer(migration.pk)})
-    if phase not in {p for p, _ in PhaseRun.PHASE_CHOICES}:
-        return HttpResponseBadRequest("unknown phase")
-    if phase == PhaseRun.PHASE_CLEANUP:
-        return HttpResponseBadRequest("use cleanup endpoint")
+    is_chain = phase == CHAIN_BACKUP_TRANSFER
+    if not is_chain:
+        if phase not in {p for p, _ in PhaseRun.PHASE_CHOICES}:
+            return HttpResponseBadRequest("unknown phase")
+        if phase == PhaseRun.PHASE_CLEANUP:
+            return HttpResponseBadRequest("use cleanup endpoint")
     migration = get_object_or_404(_editable_migrations(request.user), pk=migration_id)
-    if not load_credentials(migration.pk):
-        return JsonResponse({"ok": False, "error": "No credentials saved for this migration"}, status=400)
+    # Backup only reads the source; everything else touches both ends.
+    needs_destination = is_chain or phase != PhaseRun.PHASE_BACKUP
+    error = _credential_error(migration, needs_destination)
+    if error:
+        return JsonResponse({"ok": False, "error": error}, status=400)
+    if is_chain:
+        return JsonResponse({"ok": True, "started": launch_backup_then_transfer(migration.pk)})
     started = launch_phase(migration.pk, phase)
     return JsonResponse({"ok": True, "started": started})
 
@@ -1977,9 +2029,15 @@ def backup_config(request: HttpRequest, job_id: int | None = None) -> HttpRespon
                 obj.owner = request.user
             obj.save()
             password = form.cleaned_data.get("password") or ""
+            if not password and not bytes(obj.password_enc):
+                # Left blank on a mailbox this user has already given us a
+                # password for: reuse it rather than saving a job that cannot
+                # log in.
+                password = recall_password(obj.owner_id, obj.host, obj.username)
             if password:
                 obj.password_enc = encrypt(password)
                 obj.save(update_fields=["password_enc"])
+                remember_password(obj.owner_id, obj.host, obj.username, password)
             messages.success(request, "Mailbox saved.")
             return redirect("migrator:backup_detail", job_id=obj.pk)
     else:
@@ -2248,9 +2306,12 @@ def restore_new(request: HttpRequest) -> HttpResponse:
             obj.owner = request.user
             obj.save()
             password = form.cleaned_data.get("password") or ""
+            if not password:
+                password = recall_password(obj.owner_id, obj.host, obj.username)
             if password:
                 obj.password_enc = encrypt(password)
                 obj.save(update_fields=["password_enc"])
+                remember_password(obj.owner_id, obj.host, obj.username, password)
 
             try:
                 if obj.source_kind == RestoreJob.SOURCE_BACKUP:

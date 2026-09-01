@@ -161,7 +161,29 @@ def _phase_status(hub, phase: str, status: str, **extra) -> None:
     hub.publish({"type": "phase", "phase": phase, "status": status, **extra})
 
 
+def _require_password(password: str, side: str, username: str) -> None:
+    """Refuse to LOGIN with a blank password.
+
+    Without this the blank goes to the server and comes back as
+    "[AUTHENTICATIONFAILED] Authentication failed" — which sends everyone
+    hunting for a wrong password when the real story is that no password
+    arrived. It reads blank whenever `load_credentials` had nothing in memory
+    and the stored ciphertext would not decrypt: a MAILBOX_FERNET_KEY that
+    differs from the one that encrypted it (a database copied between
+    environments, a rotated key) decrypts to "" by design.
+    """
+    if password:
+        return
+    raise RuntimeError(
+        f"No password available for the {side} mailbox ({username}). "
+        f"Re-enter it on the configuration screen. If one was saved there "
+        f"already, this host's MAILBOX_FERNET_KEY cannot decrypt it — check "
+        f"that .env carries the same key the password was saved with."
+    )
+
+
 def _connect_old(migration: Migration, creds: Credentials) -> ImapClient:
+    _require_password(creds.old_password, "source", migration.old_username)
     return ImapClient(
         migration.old_host, migration.old_port,
         migration.old_username, creds.old_password,
@@ -170,6 +192,7 @@ def _connect_old(migration: Migration, creds: Credentials) -> ImapClient:
 
 
 def _connect_new(migration: Migration, creds: Credentials) -> ImapClient:
+    _require_password(creds.new_password, "destination", migration.new_username)
     return ImapClient(
         migration.new_host, migration.new_port,
         migration.new_username, creds.new_password,

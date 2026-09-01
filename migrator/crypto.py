@@ -7,8 +7,13 @@ it like SECRET_KEY: never commit, never rotate without re-saving every form.
 
 from __future__ import annotations
 
+import logging
+
 from cryptography.fernet import Fernet, InvalidToken
 from django.conf import settings
+
+
+logger = logging.getLogger(__name__)
 
 
 def _fernet() -> Fernet:
@@ -34,5 +39,12 @@ def decrypt(ciphertext: bytes) -> str:
     try:
         return _fernet().decrypt(bytes(ciphertext)).decode("utf-8")
     except InvalidToken:
-        # Wrong key or corrupted data — treat as "no credentials" rather than crash.
+        # Wrong key or corrupted data — treat as "no credentials" rather than
+        # crash. Log it: silently returning "" is how a key mismatch turns into
+        # a mystifying "Authentication failed" from the mail server later on.
+        logger.warning(
+            "Could not decrypt a stored password (%d bytes) — this host's "
+            "MAILBOX_FERNET_KEY is not the key it was encrypted with.",
+            len(bytes(ciphertext)),
+        )
         return ""

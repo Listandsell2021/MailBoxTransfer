@@ -61,6 +61,13 @@ def _status(hub, status: str, **extra) -> None:
 def connect(job: RestoreJob) -> ImapClient:
     password = decrypt(bytes(job.password_enc))
     if not password:
+        # Nothing on the job row — fall back to the password its owner saved
+        # for this mailbox on another screen, so one typed password serves
+        # every job against the same mailbox.
+        from .credentials import recall
+
+        password = recall(job.owner_id, job.host, job.username)
+    if not password:
         raise RuntimeError(
             "No password saved for the destination mailbox. Edit it and enter it again."
         )
