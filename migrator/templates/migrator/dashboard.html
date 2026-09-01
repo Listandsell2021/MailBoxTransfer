@@ -442,8 +442,11 @@
       <div class="alert warn" style="margin-top:14px;">
         <svg class="icon-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
         <div>
-          No passwords saved for this migration — enter them on the
+          No password saved for the
+          {% for side in missing_password_sides %}{% if not forloop.first %} and the {% endif %}<b>{{ side }}</b>{% endfor %}
+          mailbox — enter it on the
           <a href="{% url 'migrator:config_edit' migration.id %}" style="color:#92400e; font-weight:600; text-decoration:underline;">configuration screen</a> before running phases.
+          Without it the app would sign in with a blank password and the mail server would report an authentication failure.
         </div>
       </div>
     {% endif %}

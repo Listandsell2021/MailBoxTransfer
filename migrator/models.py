@@ -81,6 +81,42 @@ class Migration(models.Model):
         return f"Migration #{self.pk} ({label})"
 
 
+class MailboxCredential(models.Model):
+    """The password for one mailbox, remembered per user.
+
+    Passwords used to live only on the row that needed them — a Migration, a
+    BackupJob, a RestoreJob — so the same mailbox had to be typed again for
+    every new job, and a field left blank meant "no password" even when the
+    user had entered that very password minutes earlier on another screen.
+    That is how a migration ends up signing in with a blank password and the
+    mail server answers with an authentication failure.
+
+    Every screen writes what the user types here and reads it back when the
+    field is left blank, so a mailbox is typed once and stays typed until the
+    user enters a different password for it. Scoped to the owner: one user's
+    saved password is never handed to another's job.
+    """
+
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="mailbox_credentials",
+    )
+    # Normalised on write (host lower-cased, both trimmed) so the same mailbox
+    # typed with different capitalisation is still one row.
+    host = models.CharField(max_length=255)
+    username = models.CharField(max_length=255)
+    password_enc = models.BinaryField(blank=True, default=b"")
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = [("owner", "host", "username")]
+        ordering = ["host", "username"]
+
+    def __str__(self) -> str:
+        return f"{self.username}@{self.host}"
+
+
 class FolderMapping(models.Model):
     """Pairs an old-server folder with a new-server folder."""
 
