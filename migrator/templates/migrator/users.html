@@ -29,12 +29,14 @@
   @media (max-width: 720px) { .users-stats { grid-template-columns: 1fr; } }
 
   .filter-bar {
-    display: flex; align-items: center; gap: 8px;
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
     background: var(--card); border: 1px solid var(--card-border);
     border-radius: var(--r); padding: 8px;
     margin-bottom: 14px; box-shadow: var(--card-shadow);
-    width: fit-content;
   }
+  /* The chips keep their natural width; the search takes the rest of the bar. */
+  .filter-bar .chips { display: flex; align-items: center; gap: 8px; }
+  .filter-bar form { display: flex; flex: 1; min-width: 220px; margin: 0; }
   .filter-chip {
     display: inline-flex; align-items: center; gap: 6px;
     padding: 6px 12px; border-radius: 8px;
@@ -76,6 +78,13 @@
   .users-table tbody tr.pending td.col-actions { background: #fffbeb; }
   .users-table tbody tr.pending:hover td.col-actions { background: #fef3c7; }
   .users-table thead th.col-actions { background: #fafbfc; }
+  /* The shared th.sortable rules in base.html lose to `.users-table thead th`
+     on specificity, so they are re-stated here at the same weight. Only the
+     padding differs — this table is roomier than the others. */
+  .users-table thead th.sortable { padding: 0; }
+  .users-table thead th.sortable a.sort { padding: 12px 18px; }
+  .users-table thead th.sortable:hover,
+  .users-table thead th.sorted { background: #eef2ff; }
 
   .user-cell { display: flex; align-items: center; gap: 12px; min-width: 0; }
   .avatar {
@@ -148,15 +157,38 @@
 </div>
 
 <div class="filter-bar">
-  <a class="filter-chip {% if status_filter == 'all' %}is-active{% endif %}" href="?status=all">
-    All <span class="count">{{ stats.total }}</span>
-  </a>
-  <a class="filter-chip {% if status_filter == 'active' %}is-active{% endif %}" href="?status=active">
-    Active <span class="count">{{ stats.active }}</span>
-  </a>
-  <a class="filter-chip {% if status_filter == 'pending' %}is-active{% endif %}" href="?status=pending">
-    Awaiting approval <span class="count">{{ stats.pending }}</span>
-  </a>
+  <div class="chips">
+    <a class="filter-chip {% if status_filter == 'all' %}is-active{% endif %}" href="?status=all&amp;{{ chip_query }}">
+      All <span class="count">{{ stats.total }}</span>
+    </a>
+    <a class="filter-chip {% if status_filter == 'active' %}is-active{% endif %}" href="?status=active&amp;{{ chip_query }}">
+      Active <span class="count">{{ stats.active }}</span>
+    </a>
+    <a class="filter-chip {% if status_filter == 'pending' %}is-active{% endif %}" href="?status=pending&amp;{{ chip_query }}">
+      Awaiting approval <span class="count">{{ stats.pending }}</span>
+    </a>
+  </div>
+  {% comment %}
+  Status lives in the chips, so this form only carries the sort and page size
+  through a search — and not the page, because a fresh search belongs on the
+  first one.
+  {% endcomment %}
+  <form method="get">
+    <input type="hidden" name="status" value="{{ status_filter }}">
+    <input type="hidden" name="sort" value="{{ sort }}">
+    <input type="hidden" name="dir" value="{{ dir }}">
+    <input type="hidden" name="per" value="{{ per_page }}">
+    <div class="search-box">
+      <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input type="search" name="q" value="{{ search }}" aria-label="Search users"
+             placeholder="Search name, username or email" autocomplete="off">
+      {% if search %}
+        <a class="clear" title="Clear search"
+           href="?status={{ status_filter }}&amp;sort={{ sort }}&amp;dir={{ dir }}&amp;per={{ per_page }}">&times;</a>
+      {% endif %}
+    </div>
+    <noscript><button class="btn btn-grey" type="submit">Search</button></noscript>
+  </form>
 </div>
 
 <div class="card" style="padding: 0; overflow: hidden;">
@@ -165,20 +197,20 @@
     <thead>
       <tr>
         <th style="width: 60px;">#</th>
-        <th>User</th>
-        <th style="width: 110px;">Role</th>
+        {% include "migrator/_sort_header.html" with col=sortcols.user label="User" %}
+        {% include "migrator/_sort_header.html" with col=sortcols.role label="Role" width="110px" %}
         <th style="width: 150px;">Sign-in</th>
-        <th style="width: 180px;">Status</th>
-        <th style="text-align: right; width: 110px;">Migrations</th>
-        <th style="text-align: right; width: 110px;">Storage</th>
-        <th style="width: 150px;">Last sign-in</th>
+        {% include "migrator/_sort_header.html" with col=sortcols.status label="Status" width="180px" %}
+        {% include "migrator/_sort_header.html" with col=sortcols.migrations label="Migrations" width="110px" align="end" %}
+        {% include "migrator/_sort_header.html" with col=sortcols.storage label="Storage" width="110px" align="end" %}
+        {% include "migrator/_sort_header.html" with col=sortcols.last_login label="Last sign-in" width="150px" %}
         <th class="col-actions" style="width: 1%; text-align: right; white-space: nowrap;">Actions</th>
       </tr>
     </thead>
     <tbody>
       {% for u in users %}
         <tr class="{% if not u.is_active %}pending{% endif %}">
-          <td class="muted" style="font-variant-numeric: tabular-nums;">{{ forloop.counter }}</td>
+          <td class="muted" style="font-variant-numeric: tabular-nums;">{{ forloop.counter0|add:page_obj.start_index }}</td>
           <td>
             <div class="user-cell">
               <span class="avatar">{{ u.first_name|default:u.get_username|slice:":1" }}</span>
@@ -270,16 +302,23 @@
         <tr class="empty-row">
           <td colspan="9">
             <svg class="icon-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+            {% if search %}
+            <b>Nothing matches “{{ search }}”</b>
+            {{ stats.total }} user{{ stats.total|pluralize }} in total.
+            <div style="margin-top:14px;"><a class="btn btn-grey" href="?status={{ status_filter }}">Clear search</a></div>
+            {% else %}
             <b>No users to show</b>
             {% if status_filter == 'pending' %}No accounts are waiting for approval. New signups will appear here.
             {% elif status_filter == 'active' %}No active users yet.
             {% else %}No users have signed up yet.{% endif %}
+            {% endif %}
           </td>
         </tr>
       {% endfor %}
     </tbody>
   </table>
   </div>
+  {% include "migrator/_pagination.html" with noun="user" %}
 </div>
 
 {% endblock %}

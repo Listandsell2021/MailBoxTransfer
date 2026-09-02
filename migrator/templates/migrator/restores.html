@@ -23,20 +23,20 @@
       <thead>
         <tr>
           <th style="width:60px;">#</th>
-          <th>Destination</th>
-          {% if is_admin_view %}<th style="width:160px;">User</th>{% endif %}
-          <th>Source</th>
-          <th style="width:120px;">Status</th>
-          <th style="width:110px;">Imported</th>
-          <th style="width:110px;">Already there</th>
-          <th style="width:140px;">Finished</th>
+          {% include "migrator/_sort_header.html" with col=sortcols.destination label="Destination" %}
+          {% if is_admin_view %}{% include "migrator/_sort_header.html" with col=sortcols.owner label="User" width="160px" %}{% endif %}
+          {% include "migrator/_sort_header.html" with col=sortcols.source label="Source" %}
+          {% include "migrator/_sort_header.html" with col=sortcols.status label="Status" width="120px" %}
+          {% include "migrator/_sort_header.html" with col=sortcols.imported label="Imported" width="110px" %}
+          {% include "migrator/_sort_header.html" with col=sortcols.skipped label="Already there" width="110px" %}
+          {% include "migrator/_sort_header.html" with col=sortcols.finished label="Finished" width="140px" %}
           <th class="col-actions" style="width:1%;"></th>
         </tr>
       </thead>
       <tbody>
       {% for job in jobs %}
         <tr>
-          <td><span class="muted" style="font-variant-numeric: tabular-nums;" title="Database ID {{ job.id }}">{{ forloop.counter }}</span></td>
+          <td><span class="muted" style="font-variant-numeric: tabular-nums;" title="Database ID {{ job.id }}">{{ forloop.counter0|add:page_obj.start_index }}</span></td>
           <td>
             <div style="display:flex; align-items:center; gap:10px;">
               <span style="width:28px; height:28px; border-radius:8px; background:linear-gradient(135deg,#10b981,#0ea5e9); color:#fff; display:inline-flex; align-items:center; justify-content:center; flex-shrink:0;">
@@ -70,7 +70,6 @@
           <td class="col-actions" style="text-align:right; white-space:nowrap;">
             {% if job.can_manage %}
             <a class="btn btn-primary" href="{% url 'migrator:restore_detail' job.id %}">
-              Open
               <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
             </a>
             <form method="post" action="{% url 'migrator:delete_restore_job' job.id %}" class="js-delete-restore" style="display:inline; margin-left:6px;"
@@ -88,6 +87,7 @@
       </tbody>
     </table>
     </div>
+    {% include "migrator/_pagination.html" with noun="import" %}
   {% else %}
     <div class="empty">
       <svg class="icon-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>

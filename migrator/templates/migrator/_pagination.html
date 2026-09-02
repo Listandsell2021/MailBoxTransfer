@@ -1,0 +1,60 @@
+{% comment %}
+The footer under a list table: what's on screen, rows per page, page links.
+
+    {% include "migrator/_pagination.html" with noun="migration" %}
+
+`list_query` comes from the view already carrying the sort, status filter and
+search, and already ends in "&" when it isn't empty, so every link here only
+has to add its own page and per. Changing the page size or the sort drops
+`page`, which puts you back on the first page — page 4 of a 10-a-page list is
+nowhere in particular once the list is 100 a page.
+
+The strip renders for any non-empty list; the page links inside it only when
+there is more than one page.
+{% endcomment %}
+{% if show_pager %}
+<div class="pager">
+  <span class="pager-range">
+    {{ page_obj.start_index }}–{{ page_obj.end_index }} of {{ paginator.count }} {{ noun }}{{ paginator.count|pluralize }}
+  </span>
+
+  <label class="pager-per">
+    <span>Per page</span>
+    <select aria-label="Rows per page" onchange="location.href = this.value;">
+      {% for n in page_sizes %}
+        <option value="?{{ list_query }}per={{ n }}" {% if n == per_page %}selected{% endif %}>{{ n }}</option>
+      {% endfor %}
+    </select>
+  </label>
+
+  {% if paginator.num_pages > 1 %}
+  <nav class="pager-links" aria-label="Pagination">
+    {% if page_obj.has_previous %}
+      <a class="pg" href="?{{ list_query }}per={{ per_page }}&amp;page={{ page_obj.previous_page_number }}"
+         rel="prev" title="Previous page">‹</a>
+    {% else %}
+      <span class="pg is-off">‹</span>
+    {% endif %}
+
+    {% for n in page_numbers %}
+      {% if n %}
+        {% if n == page_obj.number %}
+          <span class="pg is-current" aria-current="page">{{ n }}</span>
+        {% else %}
+          <a class="pg" href="?{{ list_query }}per={{ per_page }}&amp;page={{ n }}">{{ n }}</a>
+        {% endif %}
+      {% else %}
+        <span class="pg-gap">…</span>
+      {% endif %}
+    {% endfor %}
+
+    {% if page_obj.has_next %}
+      <a class="pg" href="?{{ list_query }}per={{ per_page }}&amp;page={{ page_obj.next_page_number }}"
+         rel="next" title="Next page">›</a>
+    {% else %}
+      <span class="pg is-off">›</span>
+    {% endif %}
+  </nav>
+  {% endif %}
+</div>
+{% endif %}

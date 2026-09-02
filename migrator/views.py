@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import json
 import re
+from datetime import datetime, timezone as dt_timezone
 from urllib.parse import urlencode
 import tempfile
 import time
@@ -20,6 +21,7 @@ from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_POST
 
+from django.core.paginator import Paginator
 from django.db import transaction
 from django.db.models import Count, Exists, OuterRef, Q
 
@@ -361,6 +363,116 @@ def home(request: HttpRequest) -> HttpResponse:
 # Index / list
 # ---------------------------------------------------------------------------
 
+PAGE_SIZES = [10, 20, 50, 100]
+DEFAULT_PAGE_SIZE = 20
+
+
+def _page_size(request) -> int:
+    """The rows-per-page the user asked for, or the default if it's nonsense."""
+    try:
+        per = int(request.GET.get("per", DEFAULT_PAGE_SIZE))
+    except (TypeError, ValueError):
+        return DEFAULT_PAGE_SIZE
+    return per if per in PAGE_SIZES else DEFAULT_PAGE_SIZE
+
+
+def _page_numbers(page, paginator, window: int = 1) -> list:
+    """The page numbers to show — first, last, and a window around the current
+    one — with None standing in for each elided run. 41 pages shouldn't mean 41
+    links.
+    """
+    last = paginator.num_pages
+    wanted = {1, last} | {
+        n for n in range(page.number - window, page.number + window + 1)
+        if 1 <= n <= last
+    }
+    items, previous = [], 0
+    for n in sorted(wanted):
+        if previous and n - previous > 1:
+            items.append(None)
+        items.append(n)
+        previous = n
+    return items
+
+
+def _paginate(request, rows: list, keep: dict) -> dict:
+    """Slice one fully built list into pages. -> context for _pagination.html.
+
+    Paginator runs over the list rather than the queryset because these lists
+    are already materialised — status, sizes and counts are all worked out in
+    Python — so there is no query left to defer.
+
+    `keep` is what the pager's links must carry over (sort, status, search);
+    each link appends its own `per` and `page`.
+    """
+    per = _page_size(request)
+    paginator = Paginator(rows, per)
+    page = paginator.get_page(request.GET.get("page"))
+    prefix = urlencode(keep)
+    return {
+        "page_obj": page,
+        "paginator": paginator,
+        "per_page": per,
+        "page_sizes": PAGE_SIZES,
+        "page_numbers": _page_numbers(page, paginator),
+        # Every link in the pager is "?{{ list_query }}per=N&page=N".
+        "list_query": prefix + "&" if prefix else "",
+        # Shown for any non-empty list, so the three lists carry the same
+        # footer and the page size is always there to change. The page links
+        # themselves only appear when there is more than one page.
+        "show_pager": paginator.count > 0,
+    }
+
+
+def _sort_links(columns, sort: str, direction: str, keep: dict,
+                desc_first=frozenset()) -> dict:
+    """Where each sortable header points, and which arrow it shows.
+
+    Clicking the active column flips it; a fresh column opens ascending, except
+    the ones in `desc_first` — dates and counts, where "sort by this" plainly
+    means newest or biggest first. `keep` is the search and status filter, which
+    ride along so sorting never quietly drops them.
+    """
+    links = {}
+    for column in columns:
+        active = column == sort
+        if active:
+            nxt = "desc" if direction == "asc" else "asc"
+        else:
+            nxt = "desc" if column in desc_first else "asc"
+        links[column] = {
+            "url": "?" + urlencode({"sort": column, "dir": nxt, **keep}),
+            "active": active,
+            "dir": direction if active else "",
+        }
+    return links
+
+
+_LONG_AGO = datetime.min.replace(tzinfo=dt_timezone.utc)   # never ran, never signed in
+_FOREVER = datetime.max.replace(tzinfo=dt_timezone.utc)    # nothing scheduled
+
+
+def _text_key(value) -> str:
+    """Case-insensitive sort key — "alpha" belongs beside "Alpha", not after Z."""
+    return (value or "").strip().lower()
+
+
+def _sort_rows(rows: list, sorts: dict, sort: str, direction: str) -> list:
+    """Order a list by the chosen column, in place.
+
+    Sorting happens in Python, after the view has decorated each row, because
+    the interesting columns aren't fields: a job's status is derived from its
+    run, and counts, sizes and storage are aggregated on afterwards.
+
+    The pk pass runs first and Python's sort is stable, so rows that tie stay
+    newest-first whichever way the column points — no reshuffling between page
+    loads.
+    """
+    rows.sort(key=lambda r: -r.pk)
+    rows.sort(key=sorts[sort], reverse=(direction == "desc"))
+    return rows
+
+
 # Sortable columns on the migrations list -> the field to order by. `status`
 # is None because it isn't a column: it's derived from the phase runs, so it is
 # ranked in Python below.
@@ -447,29 +559,19 @@ def index(request: HttpRequest) -> HttpResponse:
             reverse=(direction == "desc"),
         )
 
-    def link(column: str) -> dict:
-        """Where this header points, and which arrow it shows."""
-        active = column == sort
-        # Clicking the active column flips it; a fresh column starts ascending,
-        # except Created, where newest-first is what anyone means by "sort by
-        # date" on a list of jobs.
-        if active:
-            nxt = "desc" if direction == "asc" else "asc"
-        else:
-            nxt = "desc" if column == "created" else "asc"
-        params = {"sort": column, "dir": nxt}
-        if wanted_status:
-            params["status"] = wanted_status
-        if search:
-            params["q"] = search
-        return {"url": "?" + urlencode(params), "active": active,
-                "dir": direction if active else ""}
+    keep = {k: v for k, v in (("status", wanted_status), ("q", search)) if v}
+    shown_count = len(migrations)
+    # Sorting comes first: a page is a window onto the ordered list, not the
+    # other way round.
+    pager = _paginate(request, migrations, {**keep, "sort": sort, "dir": direction})
 
     return render(request, "migrator/index.html", {
-        "migrations": migrations,
+        "migrations": pager["page_obj"].object_list,
         "is_admin_view": _is_admin(request.user),
         "nav_active": "migrations",
-        "sortcols": {c: link(c) for c in MIGRATION_SORTS},
+        "sortcols": _sort_links(MIGRATION_SORTS, sort, direction,
+                                {**keep, "per": pager["per_page"]},
+                                desc_first={"created"}),
         "sort": sort,
         "dir": direction,
         "status_filter": wanted_status,
@@ -482,20 +584,40 @@ def index(request: HttpRequest) -> HttpResponse:
         # against); all_count is the whole list, so the toolbar can say "8 of 39".
         "total_count": total,
         "all_count": all_count,
-        "shown_count": len(migrations),
+        "shown_count": shown_count,
         # Everything except the sort, for links that should keep the search on.
-        "keep_query": urlencode(
-            {k: v for k, v in (("status", wanted_status), ("q", search)) if v}
-        ),
+        "keep_query": urlencode(keep),
+        **pager,
     })
+
+
+# Sortable columns on the users list. Storage is aggregated onto each row
+# below, so like the job lists this sorts in Python rather than in SQL.
+USER_SORTS = {
+    # The default. Pending signups first, then staff, then alphabetical — the
+    # order the page had before it was sortable, expressed as one key so the
+    # Status header can own it.
+    "status": lambda u: (u.is_active, not u.is_staff, _text_key(u.get_username())),
+    "user": lambda u: _text_key(
+        f"{u.first_name} {u.last_name}".strip() or u.get_username()
+    ),
+    "role": lambda u: (not u.is_staff, _text_key(u.get_username())),
+    "migrations": lambda u: u.migration_count,
+    "storage": lambda u: u.storage_bytes,
+    "last_login": lambda u: u.last_login or _LONG_AGO,
+}
+
+# Counts and dates open biggest / most recent first.
+USER_SORTS_DESC_FIRST = frozenset({"migrations", "storage", "last_login"})
 
 
 @otp_required(login_url="migrator:login")
 def users_list(request: HttpRequest) -> HttpResponse:
     """Admin-only: every non-superuser and how many migrations they own.
 
-    Accepts ?status=active|pending|all (default: all) for the filter chips.
-    Inactive users sort first so new signups stand out.
+    Accepts ?status=active|pending|all (default: all) for the filter chips,
+    plus the ?q / ?sort / ?dir / ?per / ?page the other lists take. Inactive
+    users sort first by default so new signups stand out.
     """
     if not _is_admin(request.user):
         raise Http404()
@@ -516,7 +638,24 @@ def users_list(request: HttpRequest) -> HttpResponse:
         status = "all"
         filtered_qs = base_qs
 
-    users = list(filtered_qs.order_by("is_active", "-is_staff", "username"))
+    search = request.GET.get("q", "").strip()
+    if search:
+        # Whichever of the four an admin half-remembers about someone.
+        filtered_qs = filtered_qs.filter(
+            Q(username__icontains=search)
+            | Q(email__icontains=search)
+            | Q(first_name__icontains=search)
+            | Q(last_name__icontains=search)
+        )
+
+    sort = request.GET.get("sort", "status")
+    if sort not in USER_SORTS:
+        sort = "status"
+    # Unlike the job lists this one defaults to ascending: its default column is
+    # Status, and ascending there means "signups waiting on me, at the top".
+    direction = "desc" if request.GET.get("dir") == "desc" else "asc"
+
+    users = list(filtered_qs)
 
     # Compute per-user storage in one query, then attach to each user object.
     from django.db.models import Sum
@@ -552,17 +691,33 @@ def users_list(request: HttpRequest) -> HttpResponse:
             methods.add("email")
         u.signin_methods = methods  # e.g. {"google"}, {"email"}, or {"google", "email"}
 
+    _sort_rows(users, USER_SORTS, sort, direction)
+
     stats = {
         "total":   base_qs.count(),
         "active":  base_qs.filter(is_active=True).count(),
         "pending": base_qs.filter(is_active=False).count(),
     }
 
+    keep = {k: v for k, v in (("status", status), ("q", search)) if v}
+    pager = _paginate(request, users, {**keep, "sort": sort, "dir": direction})
+
     return render(request, "migrator/users.html", {
-        "users": users,
+        "users": pager["page_obj"].object_list,
         "stats": stats,
         "status_filter": status,
+        "search": search,
+        "sort": sort,
+        "dir": direction,
+        "sortcols": _sort_links(USER_SORTS, sort, direction,
+                                {**keep, "per": pager["per_page"]},
+                                desc_first=USER_SORTS_DESC_FIRST),
+        # The filter chips keep everything except the status they set.
+        "chip_query": urlencode({**{k: v for k, v in (("q", search),) if v},
+                                 "sort": sort, "dir": direction,
+                                 "per": pager["per_page"]}),
         "nav_active": "users",
+        **pager,
     })
 
 
@@ -1931,16 +2086,72 @@ def _job_state(job) -> str:
     return "not-run"
 
 
-def _job_list_context(request, base_qs, search_fields):
+# JOB_STATES is ordered least-far-along first, so its position is the rank a
+# status sort wants: alphabetical would put "complete" above "running" and tell
+# nobody anything.
+JOB_STATE_RANK = {state: i for i, (state, _label) in enumerate(JOB_STATES)}
+
+def _owner_key(job) -> str:
+    return _text_key(job.owner.get_username() if job.owner_id else "")
+
+
+BACKUP_SORTS = {
+    "created": lambda j: j.created_at,
+    "mailbox": lambda j: _text_key(j.name or j.username),
+    "owner": _owner_key,
+    "status": lambda j: JOB_STATE_RANK[j.state],
+    # Manual-only backups rank below scheduled ones, and the scheduled ones go
+    # by how soon they next run.
+    "schedule": lambda j: (j.schedule_is_on, j.next_run_at or _FOREVER),
+    "messages": lambda j: j.message_count,
+    "attachments": lambda j: j.attachment_count,
+    "size": lambda j: j.storage_bytes,
+    "last_run": lambda j: j.finished_at or _LONG_AGO,
+}
+
+RESTORE_SORTS = {
+    "created": lambda j: j.created_at,
+    "destination": lambda j: _text_key(j.name or j.username),
+    "owner": _owner_key,
+    "source": lambda j: _text_key(j.source_label),
+    "status": lambda j: JOB_STATE_RANK[j.state],
+    "imported": lambda j: j.imported,
+    "skipped": lambda j: j.skipped,
+    "finished": lambda j: j.finished_at or _LONG_AGO,
+}
+
+# Columns where a first click should mean biggest, newest or busiest first.
+JOB_SORTS_DESC_FIRST = frozenset({
+    "created", "schedule", "messages", "attachments", "size", "last_run",
+    "imported", "skipped", "finished",
+})
+
+
+def _list_keep(ctx: dict) -> dict:
+    """The sort, filter and search a pager link has to carry over."""
+    return {
+        k: v for k, v in (
+            ("sort", ctx["sort"]), ("dir", ctx["dir"]),
+            ("status", ctx["status_filter"]), ("q", ctx["search"]),
+        ) if v
+    }
+
+
+def _job_list_context(request, base_qs, search_fields, sorts, default_sort="created"):
     """Search + status-filter one job list. -> (jobs, context fragment).
 
     The counts are taken from the search results but before the status filter,
-    so the dropdown shows what each option would give you.
+    so the dropdown shows what each option would give you. The sort itself is
+    left to `_sort_jobs`, which the view calls once its rows are decorated.
     """
     search = request.GET.get("q", "").strip()
     wanted = request.GET.get("status", "")
     if wanted not in dict(JOB_STATES):
         wanted = ""
+    sort = request.GET.get("sort", default_sort)
+    if sort not in sorts:
+        sort = default_sort
+    direction = "asc" if request.GET.get("dir") == "asc" else "desc"
 
     all_count = base_qs.count()
     if search:
@@ -1967,6 +2178,14 @@ def _job_list_context(request, base_qs, search_fields):
     return jobs, unfiltered, {
         "search": search,
         "status_filter": wanted,
+        "sort": sort,
+        "dir": direction,
+        "sortcols": _sort_links(
+            sorts, sort, direction,
+            {**{k: v for k, v in (("status", wanted), ("q", search)) if v},
+             "per": _page_size(request)},
+            desc_first=JOB_SORTS_DESC_FIRST,
+        ),
         "status_choices": [
             {"value": v, "label": label, "count": counts.get(v, 0)}
             for v, label in JOB_STATES
@@ -1984,6 +2203,7 @@ def backups(request: HttpRequest) -> HttpResponse:
         request,
         _visible_backup_jobs(request.user).select_related("owner"),
         ["name", "username", "host", "owner__username"],
+        BACKUP_SORTS,
     )
     # Admins act on every row; everyone else only ever sees their own.
     can_manage_all = _is_admin(request.user)
@@ -2003,16 +2223,22 @@ def backups(request: HttpRequest) -> HttpResponse:
         row = stored_by_job.get(job.id, {})
         job.message_count = row.get("n", 0)
         job.attachment_count = row.get("atts") or 0
-        job.storage_display = _humanize_bytes(row.get("size") or 0)
+        job.storage_bytes = row.get("size") or 0     # the Size column sorts on this
+        job.storage_display = _humanize_bytes(job.storage_bytes)
+
+    # Last, so the size and count keys have something to read.
+    _sort_rows(jobs, BACKUP_SORTS, list_ctx["sort"], list_ctx["dir"])
+    pager = _paginate(request, jobs, _list_keep(list_ctx))
 
     from .scheduler import health
     return render(request, "migrator/backups.html", {
-        "jobs": jobs,
+        "jobs": pager["page_obj"].object_list,
         "scheduler": health(),
         "any_scheduled": any(j.schedule_is_on for j in all_jobs),
         "is_admin_view": _is_admin(request.user),
         "nav_active": "backups",
         **list_ctx,
+        **pager,
     })
 
 
@@ -2278,16 +2504,20 @@ def restores(request: HttpRequest) -> HttpResponse:
         request,
         _visible_restore_jobs(request.user).select_related("source_backup", "owner"),
         ["name", "username", "host", "owner__username", "source_backup__name"],
+        RESTORE_SORTS,
     )
     can_manage_all = _is_admin(request.user)
     for job in jobs:
         job.size_display = _humanize_bytes(job.archive_size)
         job.can_manage = can_manage_all or job.owner_id == request.user.id
+    _sort_rows(jobs, RESTORE_SORTS, list_ctx["sort"], list_ctx["dir"])
+    pager = _paginate(request, jobs, _list_keep(list_ctx))
     return render(request, "migrator/restores.html", {
-        "jobs": jobs,
+        "jobs": pager["page_obj"].object_list,
         "is_admin_view": _is_admin(request.user),
         "nav_active": "restores",
         **list_ctx,
+        **pager,
     })
 
 
@@ -2433,6 +2663,13 @@ def restore_start(request: HttpRequest, job_id: int) -> JsonResponse:
     if not bytes(job.password_enc):
         return JsonResponse(
             {"ok": False, "error": "No password saved for the destination mailbox."},
+            status=400,
+        )
+    if not job.paired_at:
+        # The UI disables the button until then; this covers a stale page.
+        return JsonResponse(
+            {"ok": False,
+             "error": "Pair the archive's folders against the destination first."},
             status=400,
         )
     active = job.folders.exclude(action="skip")

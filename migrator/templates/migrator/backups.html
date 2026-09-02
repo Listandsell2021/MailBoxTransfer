@@ -34,21 +34,21 @@
       <thead>
         <tr>
           <th style="width:60px;">#</th>
-          <th>Mailbox</th>
-          {% if is_admin_view %}<th style="width:160px;">User</th>{% endif %}
-          <th style="width:130px;">Status</th>
-          <th style="width:170px;">Schedule</th>
-          <th style="width:110px;">Messages</th>
-          <th style="width:110px;">Attachments</th>
-          <th style="width:100px;">Size</th>
-          <th style="width:140px;">Last run</th>
+          {% include "migrator/_sort_header.html" with col=sortcols.mailbox label="Mailbox" %}
+          {% if is_admin_view %}{% include "migrator/_sort_header.html" with col=sortcols.owner label="User" width="160px" %}{% endif %}
+          {% include "migrator/_sort_header.html" with col=sortcols.status label="Status" width="130px" %}
+          {% include "migrator/_sort_header.html" with col=sortcols.schedule label="Schedule" width="170px" %}
+          {% include "migrator/_sort_header.html" with col=sortcols.messages label="Messages" width="110px" %}
+          {% include "migrator/_sort_header.html" with col=sortcols.attachments label="Attachments" width="110px" %}
+          {% include "migrator/_sort_header.html" with col=sortcols.size label="Size" width="100px" %}
+          {% include "migrator/_sort_header.html" with col=sortcols.last_run label="Last run" width="140px" %}
           <th class="col-actions" style="width:1%;"></th>
         </tr>
       </thead>
       <tbody>
       {% for job in jobs %}
         <tr>
-          <td><span class="muted" style="font-variant-numeric: tabular-nums;" title="Database ID {{ job.id }}">{{ forloop.counter }}</span></td>
+          <td><span class="muted" style="font-variant-numeric: tabular-nums;" title="Database ID {{ job.id }}">{{ forloop.counter0|add:page_obj.start_index }}</span></td>
           <td>
             <div style="display:flex; align-items:center; gap:10px;">
               <span style="width:28px; height:28px; border-radius:8px; background:linear-gradient(135deg,#0ea5e9,#4f46e5); color:#fff; display:inline-flex; align-items:center; justify-content:center; flex-shrink:0;">
@@ -109,6 +109,7 @@
       </tbody>
     </table>
     </div>
+    {% include "migrator/_pagination.html" with noun="backup" %}
   {% else %}
     <div class="empty">
       <svg class="icon-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8v13H3V8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg>
