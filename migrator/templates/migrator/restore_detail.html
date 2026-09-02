@@ -37,6 +37,7 @@
   .reason { font-size: 11px; color: var(--muted); }
   .run-strip { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 16px 0 4px; }
   .run-strip .prog-wrap { flex: 1; min-width: 220px; }
+  .run-btn-wrap { display: inline-flex; }
 </style>
 
 <div class="page-head">
@@ -165,10 +166,18 @@
     </div>
 
     <div class="run-strip">
-      <button class="btn {% if job.is_stalled %}btn-orange{% elif job.status == 'running' %}btn-grey{% else %}btn-sky{% endif %}" id="run-btn"
-              {% if job.status == 'running' and not job.is_stalled or not has_password %}disabled{% endif %}>
-        {% if job.is_stalled %}Resume import{% elif job.status == 'running' %}Importing…{% elif job.status == 'success' %}Run again{% else %}Start import{% endif %}
-      </button>
+      {% comment %}
+      A disabled button is pointer-events:none, so the reason has to be a title
+      on the wrapper — otherwise hovering the greyed-out button explains nothing.
+      {% endcomment %}
+      <span class="run-btn-wrap"
+            {% if not has_password %}title="No password is saved for the destination mailbox"
+            {% elif not job.paired_at %}title="Connect &amp; pair folders first"{% endif %}>
+        <button class="btn {% if job.is_stalled %}btn-orange{% elif job.status == 'running' %}btn-grey{% else %}btn-sky{% endif %}" id="run-btn"
+                {% if job.status == 'running' and not job.is_stalled or not has_password or not job.paired_at %}disabled{% endif %}>
+          {% if job.is_stalled %}Resume import{% elif job.status == 'running' %}Importing…{% elif job.status == 'success' %}Run again{% else %}Start import{% endif %}
+        </button>
+      </span>
       <div class="prog-wrap">
         <div class="progress {% if job.status == 'success' %}success{% endif %}">
           <span style="width:{% if job.total %}{% widthratio job.processed job.total 100 %}{% else %}0{% endif %}%"></span>
@@ -184,9 +193,14 @@
     </div>
 
     <p class="muted" style="margin: 12px 0 0; font-size: 12.5px;">
+      {% if not job.paired_at %}
+      Connect &amp; pair folders first — until the archive's folders are matched against the
+      mailbox, the import has nowhere to put the messages.
+      {% else %}
       {{ active_messages }} message(s) in {{ active_count }} folder(s) are set to import.
       A message whose Message-ID is already in the destination folder is skipped, so running this twice
       won't create duplicates. Nothing in the destination mailbox is ever deleted or overwritten.
+      {% endif %}
     </p>
   </div>
 

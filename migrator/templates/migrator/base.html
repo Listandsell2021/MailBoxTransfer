@@ -410,15 +410,61 @@
   tbody tr:hover { background: var(--hover); }
   tr.alt td { background: transparent; }
 
+  /* Sortable column headers. Shared by the migrations, backups and restores
+     lists. The arrow is always present (a faint up/down pair when inactive) so
+     the columns don't jump width as you click between them, and so it's
+     visible that they can be clicked at all. */
+  th.sortable { padding: 0; transition: background .12s; }
+  /* The link fills the cell edge to edge — the header row grows whenever one
+     label wraps ("Already there"), and a hover tint that stopped at the text's
+     own line height would leave the rest of the cell untinted. */
+  th.sortable a.sort {
+    display: flex; align-items: center; gap: 6px;
+    height: 100%; box-sizing: border-box;
+    padding: 11px 14px; cursor: pointer;
+    color: inherit; text-decoration: none; font: inherit;
+    letter-spacing: inherit; text-transform: inherit;
+    transition: color .12s;
+  }
+  th.sortable a.sort .ind {
+    font-size: 9px; line-height: 1; color: var(--muted); opacity: .55;
+    transition: opacity .12s, color .12s;
+  }
+  /* Tint the cell, not the link, so the whole column header lights up. */
+  th.sortable:hover { background: #eef2ff; }
+  th.sortable:hover a.sort { color: var(--primary); }
+  th.sortable:hover a.sort .ind { color: var(--primary); opacity: 1; }
+  /* The column actually in force: tinted cell, indigo label, solid arrow. */
+  th.sorted { background: #eef2ff; box-shadow: inset 0 -2px 0 var(--primary); }
+  th.sorted a.sort { color: var(--primary); }
+  th.sorted a.sort .ind { color: var(--primary); opacity: 1; font-size: 10px; }
+
   /* Wide tables scroll sideways inside their card rather than squashing the
      columns, and the actions column is pinned to the right edge so the row
-     buttons stay reachable at any screen width. */
+     buttons stay reachable at any screen width.
+
+     Long tables scroll *inside* the card too: capping the height here is what
+     lets the header below be sticky at all — a sticky <th> travels within its
+     nearest scroll container, so that container has to be the one that
+     actually scrolls the rows. Per-table override:
+     <div class="table-wrap" style="--table-max-h: 70vh"> */
   .table-wrap {
-    overflow-x: auto; overflow-y: hidden;
+    overflow: auto;
+    max-height: max(320px, var(--table-max-h, calc(100vh - 230px)));
     -webkit-overflow-scrolling: touch;
     scrollbar-width: thin; scrollbar-color: #cbd5e1 transparent;
   }
-  .table-wrap::-webkit-scrollbar { height: 10px; }
+  /* The header stays at the top of the card while the rows move under it.
+     The actions column is sticky on both axes at once, so it needs to sit
+     above the rest of the header as well as above the rows. */
+  .table-wrap thead th { position: sticky; top: 0; z-index: 3; }
+  .table-wrap thead th.col-actions { z-index: 4; }
+  /* A collapsed border doesn't travel with a sticky cell in Chrome — the row
+     under the header shows through where the hairline should be — so the
+     header's underline is drawn as an inset shadow, which does. */
+  .table-wrap thead th { box-shadow: inset 0 -1px 0 var(--card-border); }
+  .table-wrap thead th.sorted { box-shadow: inset 0 -2px 0 var(--primary); }
+  .table-wrap::-webkit-scrollbar { width: 10px; height: 10px; }
   .table-wrap::-webkit-scrollbar-track { background: #f1f5f9; }
   .table-wrap::-webkit-scrollbar-thumb {
     background: #cbd5e1; border-radius: 999px; border: 2px solid #f1f5f9;
@@ -531,6 +577,34 @@
   }
   .toolbar select { width: auto; min-width: 190px; padding: 7px 32px 7px 11px; font-size: 13px; }
   .toolbar .count { margin-left: auto; font-size: 12.5px; color: var(--muted); }
+
+  /* List pager: the strip under a table. Same border and padding as the
+     toolbar above it, so a list reads as one framed block. */
+  .pager {
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    padding: 11px 16px; border-top: 1px solid var(--card-border);
+    background: #fafbfc; font-size: 12.5px; color: var(--muted);
+  }
+  .pager-range { font-variant-numeric: tabular-nums; }
+  .pager-per { display: flex; align-items: center; gap: 8px; margin: 0; }
+  .pager-per select {
+    width: auto; padding: 5px 26px 5px 9px; font-size: 12.5px;
+  }
+  .pager-links { display: flex; align-items: center; gap: 4px; margin-left: auto; }
+  .pager .pg {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 30px; height: 30px; padding: 0 8px;
+    border: 1px solid var(--card-border); border-radius: 8px;
+    background: #fff; color: var(--text); text-decoration: none;
+    font-size: 12.5px; font-variant-numeric: tabular-nums;
+    transition: background .12s, color .12s, border-color .12s;
+  }
+  .pager .pg:hover { background: #eef2ff; border-color: var(--primary); color: var(--primary); }
+  .pager .pg.is-current {
+    background: var(--primary); border-color: var(--primary); color: #fff; font-weight: 600;
+  }
+  .pager .pg.is-off { opacity: .4; background: transparent; }
+  .pager .pg-gap { padding: 0 2px; }
 
   /* Search box: the icon sits inside the field, and a clear button appears
      in its place once there is something to clear. */

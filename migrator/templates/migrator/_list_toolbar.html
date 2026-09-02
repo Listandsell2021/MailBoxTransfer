@@ -5,13 +5,15 @@ The status filter + search bar that sits above a list table.
 
 Shared by the migrations, backups and restores lists so the three can't drift
 apart. The view supplies search / status_filter / status_choices / total_count
-/ all_count / shown_count. `sort` and `dir` exist only on the migrations list;
-they ride along as hidden fields so searching doesn't reset the sort order.
+/ all_count / shown_count. `sort`, `dir` and `per` ride along as hidden fields
+so searching or filtering keeps the sort order and page size — but not `page`,
+because the first page is where a fresh search belongs.
 {% endcomment %}
 <div class="toolbar">
   <form method="get">
     {% if sort %}<input type="hidden" name="sort" value="{{ sort }}">{% endif %}
     {% if dir %}<input type="hidden" name="dir" value="{{ dir }}">{% endif %}
+    {% if per_page %}<input type="hidden" name="per" value="{{ per_page }}">{% endif %}
     <label for="status-filter">Status</label>
     <select id="status-filter" name="status" onchange="this.form.submit()">
       <option value="">All statuses ({{ total_count }})</option>
@@ -27,14 +29,14 @@ they ride along as hidden fields so searching doesn't reset the sort order.
              aria-label="Search {{ noun }}s" autocomplete="off">
       {% if search %}
         <a class="clear" title="Clear search"
-           href="?{% if sort %}sort={{ sort }}&amp;dir={{ dir }}&amp;{% endif %}{% if status_filter %}status={{ status_filter }}{% endif %}">&times;</a>
+           href="?{% if sort %}sort={{ sort }}&amp;dir={{ dir }}&amp;{% endif %}{% if per_page %}per={{ per_page }}&amp;{% endif %}{% if status_filter %}status={{ status_filter }}{% endif %}">&times;</a>
       {% endif %}
     </div>
     <noscript><button class="btn btn-grey" type="submit">Apply</button></noscript>
   </form>
   {% if status_filter %}
     <a class="btn btn-grey"
-       href="?{% if sort %}sort={{ sort }}&amp;dir={{ dir }}&amp;{% endif %}{% if search %}q={{ search|urlencode }}{% endif %}">Clear filter</a>
+       href="?{% if sort %}sort={{ sort }}&amp;dir={{ dir }}&amp;{% endif %}{% if per_page %}per={{ per_page }}&amp;{% endif %}{% if search %}q={{ search|urlencode }}{% endif %}">Clear filter</a>
   {% endif %}
   <span class="count">
     {% if status_filter or search %}{{ shown_count }} of {{ all_count }}{% else %}{{ all_count }}{% endif %}
